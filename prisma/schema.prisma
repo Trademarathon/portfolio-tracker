@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Trade {
+  id        String   @id @default(uuid())
+  symbol    String
+  side      String   // "long" | "short"
+  entryPrice Float
+  exitPrice  Float?
+  size      Float
+  pnl       Float?
+  status    String   @default("open")
+  
+  // EI Data (Emotional Intelligence)
+  emotionStart String?
+  emotionEnd   String?
+  mistakeType  String? // "fomo", "revenge", "early_exit"
+  notes        String?
+  
+  date      DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PortfolioSnapshot {
+  id        String   @id @default(uuid())
+  totalValue Float
+  date      DateTime @default(now())
+}

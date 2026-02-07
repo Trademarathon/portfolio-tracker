@@ -1,0 +1,2 @@
+all live prices with PI WebSockets wit#!/bin/sh
+exec node "$(dirname "$0")/../npm-local/bin/npx-cli.js" "$@"
