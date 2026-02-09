@@ -43,18 +43,19 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
 
     const ActivityRow = ({ index, style }: { index: number, style: CSSProperties }) => {
         const act = allActivity[index];
-        const isTrade = act.activityType === 'trade';
+        const isTrade = act.activityType === 'trade' || (act as any).type === 'Buy' || (act as any).type === 'Sell';
         const isInternal = act.activityType === 'internal';
-        const isTransfer = act.activityType === 'transfer';
+        const isTransfer = act.activityType === 'transfer' || (act as any).type === 'Deposit' || (act as any).type === 'Withdraw';
 
-        let typeLabel = isTrade ? (act as any).side.toUpperCase() : isInternal ? 'INTERNAL' : (act as any).type.toUpperCase();
+        const side = (act as any).side || (act as any).type || 'UNKNOWN';
+        let typeLabel = isTrade ? side.toUpperCase() : isInternal ? 'INTERNAL' : ((act as any).type || 'UNKNOWN').toUpperCase();
         let typeColor = 'text-zinc-500';
         let Icon = Activity;
 
         if (isTrade) {
-            const side = (act as any).side;
-            typeColor = side === 'buy' ? 'text-emerald-500' : 'text-red-500';
-            Icon = side === 'buy' ? ShoppingCart : TrendingDown;
+            const s = side.toLowerCase();
+            typeColor = (s === 'buy' || s === 'long') ? 'text-emerald-500' : 'text-red-500';
+            Icon = (s === 'buy' || s === 'long') ? ShoppingCart : TrendingDown;
         } else if (isInternal) {
             typeColor = 'text-blue-500';
             Icon = ArrowRightLeft;
@@ -64,12 +65,12 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
             Icon = type === 'Deposit' ? ArrowDownLeft : ArrowUpRight;
         }
 
-        const symbol = isTrade ? (act as any).symbol : act.asset;
+        const symbol = isTrade ? ((act as any).symbol || (act as any).asset || 'UNKNOWN') : act.asset;
         const amount = act.amount;
 
         let details = '';
         if (isTrade) {
-            details = `@ $${(act as any).price}`;
+            details = `@ $${((act as any).price || 0).toLocaleString()}`;
         } else if (isInternal) {
             details = `${(act as any).from} → ${(act as any).to}`;
         } else if (isTransfer) {
@@ -202,9 +203,9 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
                                                     </td>
                                                     <td className={cn(
                                                         "px-3 py-3 text-right font-bold",
-                                                        pos.pnl >= 0 ? "text-emerald-500" : "text-red-500"
+                                                        (pos.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500"
                                                     )}>
-                                                        ${pos.pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                        ${(pos.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -250,13 +251,13 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
                                                         </div>
                                                     </td>
                                                     <td className="px-3 py-3 text-right text-zinc-400 font-mono text-xs">
-                                                        ${tx.price.toLocaleString()}
+                                                        ${(tx.price || 0).toLocaleString()}
                                                     </td>
                                                     <td className="px-3 py-3 text-right text-zinc-300">
                                                         {tx.amount}
                                                     </td>
                                                     <td className="px-3 py-3 text-right font-bold text-emerald-500">
-                                                        ${(tx.price * tx.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                                        ${((tx.price || 0) * tx.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                                     </td>
                                                     <td className="px-3 py-3 text-xs text-zinc-500">
                                                         {tx.exchange}

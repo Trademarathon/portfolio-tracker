@@ -5,8 +5,12 @@ import { Position } from '@/lib/api/types';
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
+interface PositionWithName extends Position {
+    assetName?: string;
+}
+
 interface OpenPositionsTableProps {
-    positions: Position[];
+    positions: PositionWithName[];
 }
 
 export default function OpenPositionsTable({ positions }: OpenPositionsTableProps) {
@@ -50,7 +54,12 @@ export default function OpenPositionsTable({ positions }: OpenPositionsTableProp
                                     className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
                                     onClick={() => router.push('/watchlist?symbol=' + pos.symbol)}
                                 >
-                                    <td className="px-4 py-3 font-medium">{pos.symbol}</td>
+                                    <td className="px-4 py-3">
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-zinc-100">{pos.assetName || pos.symbol}</span>
+                                            <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{pos.symbol}</span>
+                                        </div>
+                                    </td>
                                     <td className={cn(
                                         "px-4 py-3 font-bold uppercase text-xs",
                                         pos.side === 'long' ? "text-emerald-500" : "text-red-500"

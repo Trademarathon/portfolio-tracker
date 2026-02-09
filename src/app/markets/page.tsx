@@ -50,12 +50,12 @@ export default function MarketsPage() {
                             <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
                                 <Globe className="h-6 w-6" />
                             </div>
-                            <h1 className="text-3xl font-black tracking-tight text-white">
+                            <h1 className="text-3xl font-serif font-black tracking-tight text-white">
                                 Global Markets
                             </h1>
                         </div>
                         <p className="text-zinc-400 max-w-lg">
-                            Explore real-time data for <span className="text-white font-bold">{allSymbols.length}</span> active markets.
+                            Explore <span className="italic font-serif text-zinc-400">real-time data</span> for <span className="text-white font-bold">{allSymbols.length}</span> active markets.
                             Including Hyperliquid HIP-3 deployments.
                         </p>
                     </div>

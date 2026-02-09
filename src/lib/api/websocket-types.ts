@@ -17,9 +17,19 @@ export interface WebSocketConnectionInfo {
 export interface WebSocketMessage {
     source: string; // Connection name
     connectionId: string;
-    type: 'balance' | 'position' | 'trade' | 'blockchain' | 'status';
+    type: 'balance' | 'position' | 'trade' | 'blockchain' | 'status' | 'allMids' | 'marketStats';
     data: any;
     timestamp: number;
+}
+
+export interface MarketStatData {
+    symbol: string;
+    price: number;
+    change24h: number; // %
+    volume24h: number; // USD
+    fundingRate: number; // Hourly
+    openInterest: number; // USD
+    lastUpdated: number;
 }
 
 export interface ReconnectionConfig {

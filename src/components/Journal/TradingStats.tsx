@@ -43,24 +43,65 @@ export function TradingStats({ transactions }: TradingStatsProps) {
         });
         const bestPair = Object.entries(pairPerformance).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
 
+        // Fee Stats
+        let makerFees = 0;
+        let takerFees = 0;
+        let networkFees = 0;
+        let fundingPnL = 0;
+
+        transactions.forEach(t => {
+            const feeVal = t.fee || 0;
+            // distinct negative funding (cost) vs positive (income) if needed, but usually net is good
+            // Note: Hyperliquid funding is reported as PnL, not fee.
+            if (t.feeType === 'funding') {
+                fundingPnL += t.pnl || 0;
+            } else if (t.feeType === 'network') {
+                networkFees += feeVal;
+            } else if (t.feeType === 'trading' || (t.exchange && !t.feeType)) {
+                // Default to trading fee if exchange is present
+                if (t.takerOrMaker === 'maker') makerFees += feeVal;
+                else takerFees += feeVal;
+            }
+        });
+
         return {
             netPnl,
             winRate,
             profitFactor,
             avgWin,
             avgLoss,
-            bestPair
+            bestPair,
+            makerFees,
+            takerFees,
+            networkFees,
+            fundingPnL
         };
     }, [transactions]);
 
     return (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <StatCard label="Net PnL" value={stats.netPnl} isCurrency color={stats.netPnl >= 0 ? 'text-green-400' : 'text-red-400'} />
-            <StatCard label="Win Rate" value={stats.winRate} suffix="%" />
-            <StatCard label="Profit Factor" value={stats.profitFactor} decimals={2} />
-            <StatCard label="Avg Win" value={stats.avgWin} isCurrency className="text-green-400" />
-            <StatCard label="Avg Loss" value={stats.avgLoss} isCurrency className="text-red-400" />
-            <StatCard label="Best Pair" value={stats.bestPair} />
+        <div className="space-y-6">
+            <div>
+                <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Performance</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <StatCard label="Net PnL" value={stats.netPnl} isCurrency color={stats.netPnl >= 0 ? 'text-green-400' : 'text-red-400'} />
+                    <StatCard label="Win Rate" value={stats.winRate} suffix="%" />
+                    <StatCard label="Profit Factor" value={stats.profitFactor} decimals={2} />
+                    <StatCard label="Avg Win" value={stats.avgWin} isCurrency className="text-green-400" />
+                    <StatCard label="Avg Loss" value={stats.avgLoss} isCurrency className="text-red-400" />
+                    <StatCard label="Best Pair" value={stats.bestPair} />
+                </div>
+            </div>
+
+            <div>
+                <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Fees & Costs</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <StatCard label="Trading Fees (Total)" value={stats.makerFees + stats.takerFees} isCurrency className="text-orange-400" />
+                    <StatCard label="Maker Fees" value={stats.makerFees} isCurrency className="text-zinc-400" />
+                    <StatCard label="Taker Fees" value={stats.takerFees} isCurrency className="text-zinc-400" />
+                    <StatCard label="Funding PnL" value={stats.fundingPnL} isCurrency color={stats.fundingPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
+                    <StatCard label="Network/Gas Fees" value={stats.networkFees} isCurrency className="text-blue-400" />
+                </div>
+            </div>
         </div>
     );
 }

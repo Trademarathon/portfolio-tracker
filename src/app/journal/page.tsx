@@ -19,7 +19,10 @@ export default function JournalPage() {
         // Load from LocalStorage - ONLY real data, no demo
         const savedData = localStorage.getItem("journal_transactions");
         if (savedData) {
-            setTransactions(JSON.parse(savedData));
+            const parsed = JSON.parse(savedData);
+            // Deduplicate by ID to prevent React key errors
+            const unique = parsed.filter((v: Transaction, i: number, a: Transaction[]) => a.findIndex(t => t.id === v.id) === i);
+            setTransactions(unique);
         }
         // If no saved data, show empty state - user must click "Sync Data"
     }, []);
@@ -108,7 +111,7 @@ export default function JournalPage() {
                             <ArrowLeft size={24} />
                         </Link>
                         <div>
-                            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                            <h1 className="text-3xl font-serif font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                                 Trading Journal
                             </h1>
                             <p className="text-gray-500">Track, Analyze, Improve.</p>

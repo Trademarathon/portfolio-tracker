@@ -88,7 +88,13 @@ class WebSocketManager {
 
     connectBinance(symbols: string[], isReconnect = false) {
         const ex = 'binance';
-        const newSymbols = symbols.filter(s => !this.subscribedSymbols[ex].has(s));
+        // Sanitize symbols: remove 'USDC (Perp)' style, keep only alphanumeric, remove USDT suffix if present to re-add it cleanly?
+        // Actually, normalizeSymbol removes USDT.
+        // But here we get raw symbols like 'BTC', 'ETH', or 'USDC (Perp)'.
+        // We should skip 'Perp' symbols for this spot ticker stream or handle them.
+        // Let's filter slightly more aggressively.
+        const validSymbols = symbols.filter(s => /^[a-zA-Z0-9]+$/.test(s));
+        const newSymbols = validSymbols.filter(s => !this.subscribedSymbols[ex].has(s));
 
         if (newSymbols.length === 0 && !isReconnect && this.connections.has(ex)) {
             return; // Already subscribed or connected
@@ -132,7 +138,7 @@ class WebSocketManager {
             } catch (e) { }
         };
 
-        ws.onerror = (e) => console.error('[PriceWS] Binance Error:', e);
+        ws.onerror = (e) => console.warn('[PriceWS] Binance Error:', e);
         ws.onclose = () => {
             console.log('[PriceWS] Binance Closed');
             this.scheduleReconnect(ex);
@@ -173,7 +179,7 @@ class WebSocketManager {
                 this.heartbeats.set(ex, hb);
             };
 
-            ws.onerror = (e) => console.error('[PriceWS] Bybit Error:', e);
+            ws.onerror = (e) => console.warn('[PriceWS] Bybit Error:', e);
             ws.onclose = () => {
                 console.log('[PriceWS] Bybit Closed');
                 this.scheduleReconnect(ex);
@@ -274,7 +280,7 @@ class WebSocketManager {
             } catch (e) { }
         };
 
-        ws.onerror = (e) => console.error('[PriceWS] Hyperliquid Error:', e);
+        ws.onerror = (e) => console.warn('[PriceWS] Hyperliquid Error:', e);
         ws.onclose = () => {
             console.log('[PriceWS] Hyperliquid Closed');
             this.scheduleReconnect(ex);

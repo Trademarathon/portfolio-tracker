@@ -3,6 +3,7 @@ import { Wallet, TrendingUp, TrendingDown, Layers, Trophy } from "lucide-react";
 import { motion } from "framer-motion";
 import { PortfolioAsset } from "@/lib/api/types";
 import Image from "next/image";
+import { GlowingEffect } from "@/components/ui/glowing-effect";
 
 interface OverviewProps {
     totalValue: number;
@@ -29,125 +30,119 @@ export default function OverviewCard({ totalValue, pnlUsd, pnlPercent, openPosit
     const topPerformance = topPerformer?.priceChange24h || 0;
     const isTopPositive = topPerformance >= 0;
 
+    const cards = [
+        {
+            title: "Total Balance",
+            icon: Wallet,
+            iconColor: "text-primary",
+            content: (
+                <>
+                    <div className="text-2xl font-bold text-white">
+                        ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        <span className={`${isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center gap-1`}>
+                            {isPositive ? '+' : ''}{pnlPercent.toFixed(2)}%
+                            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        </span>{" "}
+                        (24h)
+                    </p>
+                </>
+            )
+        },
+        {
+            title: "PnL (24h)",
+            icon: TrendingUp,
+            iconColor: isPositive ? 'text-emerald-500' : 'text-red-500',
+            content: (
+                <>
+                    <div className={`text-2xl font-bold ${isPositive ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {isPositive ? '+' : ''}${pnlUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        Daily Variation
+                    </p>
+                </>
+            )
+        },
+        {
+            title: "Open Positions",
+            icon: Layers,
+            iconColor: "text-blue-500",
+            content: (
+                <>
+                    <div className="text-2xl font-bold text-white">{openPositions}</div>
+                    <p className="text-xs text-muted-foreground">
+                        Active Trades
+                    </p>
+                </>
+            )
+        },
+        {
+            title: "Top Performer",
+            icon: Trophy,
+            iconColor: "text-amber-500",
+            content: (
+                <>
+                    {topPerformer ? (
+                        <>
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="h-6 w-6 rounded-full overflow-hidden bg-white/5 relative flex items-center justify-center text-[10px] font-bold border border-white/10">
+                                    {topPerformer.symbol.substring(0, 1)}
+                                </div>
+                                <div className="text-2xl font-bold text-white">
+                                    {topPerformer.symbol}
+                                </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                <span className={`${isTopPositive ? 'text-emerald-500' : 'text-red-500'} font-bold`}>
+                                    {isTopPositive ? '+' : ''}{topPerformance.toFixed(2)}%
+                                </span>{" "}
+                                (24h)
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <div className="text-2xl font-bold text-zinc-500">--</div>
+                            <p className="text-xs text-muted-foreground">No data available</p>
+                        </>
+                    )}
+                </>
+            )
+        }
+    ];
+
     return (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-            >
-                <Card className="bg-gradient-to-br from-zinc-900 to-zinc-950 border-white/10 h-full">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Total Balance
-                        </CardTitle>
-                        <Wallet className="h-4 w-4 text-primary" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-white">
-                            ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            <span className={`${isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center gap-1`}>
-                                {isPositive ? '+' : ''}{pnlPercent.toFixed(2)}%
-                                {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                            </span>{" "}
-                            (24h)
-                        </p>
-                    </CardContent>
-                </Card>
-            </motion.div>
-
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.1 }}
-            >
-                <Card className="bg-gradient-to-br from-zinc-900 to-zinc-950 border-white/10 h-full">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            PnL (24h)
-                        </CardTitle>
-                        <TrendingUp className={`h-4 w-4 ${isPositive ? 'text-emerald-500' : 'text-red-500'}`} />
-                    </CardHeader>
-                    <CardContent>
-                        <div className={`text-2xl font-bold ${isPositive ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {isPositive ? '+' : ''}${pnlUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            Daily Variation
-                        </p>
-                    </CardContent>
-                </Card>
-            </motion.div>
-
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.2 }}
-            >
-                <Card className="bg-gradient-to-br from-zinc-900 to-zinc-950 border-white/10 h-full">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Open Positions
-                        </CardTitle>
-                        <Layers className="h-4 w-4 text-blue-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-white">{openPositions}</div>
-                        <p className="text-xs text-muted-foreground">
-                            Active Trades
-                        </p>
-                    </CardContent>
-                </Card>
-            </motion.div>
-
-            {/* Top Performer Card */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.3 }}
-            >
-                <Card className="bg-gradient-to-br from-zinc-900 to-zinc-950 border-white/10 h-full">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Top Performer
-                        </CardTitle>
-                        <Trophy className="h-4 w-4 text-amber-500" />
-                    </CardHeader>
-                    <CardContent>
-                        {topPerformer ? (
-                            <>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <div className="h-6 w-6 rounded-full overflow-hidden bg-white/5 relative">
-                                        {/* Fallback icon if no logo, but we usually have one or use a generic one */}
-                                        {/* Ideally we use the same TokenIcon component, but let's simluate or import it if needed. 
-                                            For now, just text or use a generic image if we don't import TokenIcon 
-                                        */}
-                                        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold">
-                                            {topPerformer.symbol.substring(0, 1)}
-                                        </div>
-                                    </div>
-                                    <div className="text-2xl font-bold text-white">
-                                        {topPerformer.symbol}
-                                    </div>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    <span className={`${isTopPositive ? 'text-emerald-500' : 'text-red-500'} font-bold`}>
-                                        {isTopPositive ? '+' : ''}{topPerformance.toFixed(2)}%
-                                    </span>{" "}
-                                    (24h)
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <div className="text-2xl font-bold text-zinc-500">--</div>
-                                <p className="text-xs text-muted-foreground">No data available</p>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-            </motion.div>
+            {cards.map((card, index) => (
+                <motion.div
+                    key={index}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.1 }}
+                >
+                    <div className="relative h-full rounded-xl">
+                        <GlowingEffect
+                            spread={40}
+                            glow={true}
+                            disabled={false}
+                            proximity={64}
+                            inactiveZone={0.01}
+                        />
+                        <Card className="relative h-full bg-zinc-950/80 backdrop-blur-md border-white/10 overflow-hidden">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">
+                                    {card.title}
+                                </CardTitle>
+                                <card.icon className={`h-4 w-4 ${card.iconColor}`} />
+                            </CardHeader>
+                            <CardContent>
+                                {card.content}
+                            </CardContent>
+                        </Card>
+                    </div>
+                </motion.div>
+            ))}
         </div>
     );
 }

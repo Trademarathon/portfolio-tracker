@@ -109,7 +109,7 @@ export default function Sidebar({ className, onClose }: SidebarProps) {
                         <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center">
                             <span className="text-white font-bold text-xl">P</span>
                         </div>
-                        <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
+                        <span className="text-xl font-serif font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
                             Portfolio
                         </span>
                     </div>

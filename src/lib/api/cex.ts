@@ -10,7 +10,24 @@ export async function fetchCexBalance(exchangeId: string, apiKey: string, secret
         throw new Error(error.error || 'Failed to fetch balance');
     }
 
-    return response.json();
+    const rawBalance = await response.json();
+    return normalizeCexBalance(rawBalance);
+}
+
+export function normalizeCexBalance(ccxtBalance: any): { symbol: string, balance: number }[] {
+    const balances: { symbol: string, balance: number }[] = [];
+
+    if (ccxtBalance && typeof ccxtBalance === 'object') {
+        const total = ccxtBalance.total || {};
+        Object.entries(total).forEach(([symbol, balance]) => {
+            const b = typeof balance === 'string' ? parseFloat(balance) : (balance as number);
+            if (b > 0) {
+                balances.push({ symbol, balance: b });
+            }
+        });
+    }
+
+    return balances;
 }
 
 export interface CexTransfer {
@@ -55,7 +72,7 @@ export async function fetchCexTransfers(
         const data = await response.json();
         return data.transfers || [];
     } catch (e) {
-        console.error("Transfers Fetch Error", e);
+        console.warn("Transfers Fetch Error", e);
         return [];
     }
 }
@@ -76,7 +93,28 @@ export async function fetchCexTrades(
         const data = await response.json();
         return data.trades || [];
     } catch (e) {
-        console.error("Trades Fetch Error", e);
+        console.warn("Trades Fetch Error", e);
+        return [];
+    }
+}
+
+export async function fetchCexOpenOrders(
+    exchange: 'binance' | 'bybit',
+    apiKey: string,
+    apiSecret: string
+) {
+    try {
+        const response = await fetch('/api/cex/open-orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ exchangeId: exchange, apiKey, secret: apiSecret })
+        });
+
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data.orders || [];
+    } catch (e) {
+        console.warn("Open Orders Fetch Error", e);
         return [];
     }
 }

@@ -29,7 +29,7 @@ export async function getTopCoins(limit = 50, specificSymbols: string[] = []): P
         }));
 
     } catch (error) {
-        console.error('Error fetching prices:', error);
+        console.warn('Warning fetching prices:', error);
         return [];
     }
 }

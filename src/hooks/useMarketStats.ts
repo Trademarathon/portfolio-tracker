@@ -68,7 +68,7 @@ export function useMarketStats() {
 
                 setStats(newStats);
             } catch (error) {
-                console.error("Error fetching market stats:", error);
+                console.warn("Error fetching market stats:", error);
             } finally {
                 setLoading(false);
             }

@@ -12,7 +12,9 @@ export interface Position {
     entryPrice: number;
     markPrice?: number;
     size: number;
-    pnl: number;
+    pnl?: number;
+    fee?: number;
+    feeCurrency?: string;
     side: 'long' | 'short';
     leverage?: number;
     liquidationPrice?: number;
@@ -41,6 +43,9 @@ export interface Transaction {
     screenshots?: string[]; // URLs
     pnl?: number; // Realized PnL for this trade (if closed)
     status?: 'open' | 'closed';
+    // Fee Breakdown
+    feeType?: 'trading' | 'network' | 'funding';
+    takerOrMaker?: 'maker' | 'taker';
 }
 
 export interface SourceBreakdown {

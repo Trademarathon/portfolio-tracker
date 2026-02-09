@@ -26,9 +26,11 @@ export class EnhancedWebSocketManager {
         private connections: PortfolioConnection[],
         private onMessage: MessageHandler,
         private onStatusChange?: StatusHandler,
-        reconnectConfig?: Partial<ReconnectionConfig>
+        reconnectConfig?: Partial<ReconnectionConfig>,
+        private universalMode: boolean = false
     ) {
         this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...reconnectConfig };
+        console.log(`[WS Manager] New Instance Created. Universal: ${this.universalMode}`);
 
         // Initialize Wallet Manager
         this.walletManager = new WalletWebSocketManager((msg) => {
@@ -43,7 +45,7 @@ export class EnhancedWebSocketManager {
     }
 
     public async initialize() {
-        console.log('[WS Manager] Initializing WebSocket connections...');
+        console.log(`[WS Manager] Initializing... (Universal: ${this.universalMode})`);
 
         // Only connect to enabled connections
         const enabledConnections = this.connections.filter(conn => conn.enabled !== false);
@@ -51,9 +53,16 @@ export class EnhancedWebSocketManager {
         // Fire and forget individual connections to avoid blocking the main thread/loading state
         enabledConnections.forEach(conn => {
             this.connectConnection(conn).catch(e => {
-                console.error(`[WS Manager] Failed to initiate connection for ${conn.name}:`, e);
+                console.warn(`[WS Manager] Failed to initiate connection for ${conn.name}:`, e);
             });
         });
+
+        // Universal Mode: Connect to global data feeds
+        if (this.universalMode) {
+            this.connectHyperliquidUniversal().catch(e => {
+                console.warn('[WS Manager] Failed to initiate universal connection:', e);
+            });
+        }
     }
 
     private async connectConnection(conn: PortfolioConnection) {
@@ -75,7 +84,7 @@ export class EnhancedWebSocketManager {
                 this.updateConnectionStatus(conn.id, 'connected');
             }
         } catch (error: any) {
-            console.error(`[WS Manager] Failed to connect ${conn.name}:`, error);
+            console.warn(`[WS Manager] Failed to connect ${conn.name}:`, error);
             this.updateConnectionStatus(conn.id, 'error', error.message);
             this.scheduleReconnect(conn);
         }
@@ -156,7 +165,7 @@ export class EnhancedWebSocketManager {
                 };
 
                 ws.onerror = (error) => {
-                    console.error(`[Binance Spot] Error: ${conn.name}`, error);
+                    console.warn(`[Binance Spot] Error: ${conn.name}`, error);
                     this.updateConnectionStatus(conn.id, 'error', 'WebSocket error');
                 };
 
@@ -233,7 +242,7 @@ export class EnhancedWebSocketManager {
                 };
 
                 wsFutures.onerror = (error) => {
-                    console.error(`[Binance Futures] Error: ${conn.name}`, error);
+                    console.warn(`[Binance Futures] Error: ${conn.name}`, error);
                 };
 
                 wsFutures.onclose = () => {
@@ -261,7 +270,7 @@ export class EnhancedWebSocketManager {
                             })
                         });
                     } catch (e) {
-                        console.error(`[Binance Futures] Failed to refresh ListenKey for ${conn.name}`);
+                        console.warn(`[Binance Futures] Failed to refresh ListenKey for ${conn.name}`);
                     }
                 }, 1000 * 60 * 30);
 
@@ -275,7 +284,7 @@ export class EnhancedWebSocketManager {
             }
 
         } catch (e: any) {
-            console.error(`[Binance] Connection error for ${conn.name}:`, e);
+            console.warn(`[Binance] Connection error for ${conn.name}:`, e);
             throw e;
         }
     }
@@ -360,7 +369,7 @@ export class EnhancedWebSocketManager {
         };
 
         ws.onerror = (error) => {
-            console.error(`[Bybit] Error: ${conn.name}`, error);
+            console.warn(`[Bybit] Error: ${conn.name}`, error);
             this.updateConnectionStatus(conn.id, 'error', 'WebSocket error');
         };
 
@@ -464,7 +473,7 @@ export class EnhancedWebSocketManager {
         };
 
         ws.onerror = (error) => {
-            console.error(`[Hyperliquid] Error: ${conn.name}`, error);
+            console.warn(`[Hyperliquid] Error: ${conn.name}`, error);
             this.updateConnectionStatus(conn.id, 'error', 'WebSocket error');
         };
 
@@ -516,6 +525,86 @@ export class EnhancedWebSocketManager {
         this.sockets.set(socketId, {
             id: socketId,
             connectionId: conn.id,
+            ws,
+            keepAlive: heartbeat,
+            reconnectAttempts: 0
+        });
+    }
+
+    // --- UNIVERSAL HYPERLIQUID (Global Data) ---
+    private async connectHyperliquidUniversal() {
+        const socketId = 'hyperliquid_universal';
+        if (this.sockets.has(socketId)) return;
+
+        const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
+
+        // Heartbeat
+        let heartbeat: NodeJS.Timeout | undefined;
+
+        ws.onopen = () => {
+            console.log(`[Hyperliquid Universal] Connected`);
+
+            // 1. Subscribe to All Prices (allMids)
+            ws.send(JSON.stringify({
+                method: 'subscribe',
+                subscription: { type: 'allMids' }
+            }));
+
+            // 2. Subscribe to Market Stats (webData2 for 24h stats/volume/funding)
+            // Note: 'webData2' is an internal channel but often used. 
+            // Alternatively use 'activeAssetCtx' for strictly Funding/OI/Impact
+            // Let's use 'webData2' as it typically has everything for the UI.
+            ws.send(JSON.stringify({
+                method: 'subscribe',
+                subscription: { type: 'webData2', user: '0x0000000000000000000000000000000000000000' }
+            }));
+
+            // Start Heartbeat
+            heartbeat = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ method: 'ping' }));
+                }
+            }, 30000);
+        };
+
+        ws.onclose = () => {
+            console.log(`[Hyperliquid Universal] Disconnected`);
+            if (heartbeat) clearInterval(heartbeat);
+            this.sockets.delete(socketId);
+            // Auto reconnect universal after 5s
+            setTimeout(() => this.connectHyperliquidUniversal(), 5000);
+        };
+
+        ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            const now = Date.now();
+
+            if (msg.channel === 'allMids') {
+                // Format: { "BTC": "65000.5", "ETH": "3500.2", ... }
+                this.onMessage({
+                    source: 'Hyperliquid',
+                    connectionId: 'universal',
+                    type: 'allMids',
+                    data: msg.data.mids,
+                    timestamp: now
+                });
+            }
+            else if (msg.channel === 'webData2') {
+                // Contains comprehensive stats
+                // We forward it raw or parsed. Let's send raw to hook for processing efficiency.
+                this.onMessage({
+                    source: 'Hyperliquid',
+                    connectionId: 'universal',
+                    type: 'marketStats',
+                    data: msg.data,
+                    timestamp: now
+                });
+            }
+        };
+
+        this.sockets.set(socketId, {
+            id: socketId,
+            connectionId: 'universal',
             ws,
             keepAlive: heartbeat,
             reconnectAttempts: 0

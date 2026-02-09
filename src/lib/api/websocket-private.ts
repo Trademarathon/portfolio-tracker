@@ -93,7 +93,7 @@ export class PrivateWebSocketManager {
             }
 
         } catch (e) {
-            console.error(`Binance WS Error (${conn.name}):`, e);
+            console.warn(`Binance WS Error (${conn.name}):`, e);
         }
     }
 

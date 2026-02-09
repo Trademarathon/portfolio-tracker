@@ -39,24 +39,32 @@ export class WalletWebSocketManager {
                 await this.monitorHedera(address, name);
             }
         } catch (error) {
-            console.error(`[Wallet WS] Failed to start monitoring ${chain}:`, error);
+            console.warn(`[Wallet WS] Failed to start monitoring ${chain}:`, error);
         }
     }
 
     // EVM Wallet Monitor (ETH, ARB, MATIC, OP, BASE, AVAX, BSC)
     private async monitorEVM(address: string, chain: string, name: string) {
         const rpcUrls: { [key: string]: string } = {
-            'ETH': 'wss://eth-mainnet.g.alchemy.com/v2/demo',
-            'ARB': 'wss://arb-mainnet.g.alchemy.com/v2/demo',
-            'MATIC': 'wss://polygon-mainnet.g.alchemy.com/v2/demo',
-            'OP': 'wss://opt-mainnet.g.alchemy.com/v2/demo',
-            'BASE': 'wss://base-mainnet.g.alchemy.com/v2/demo',
-            'AVAX': 'wss://api.avax.network/ext/bc/C/ws',
-            'BSC': 'wss://bsc-ws-node.nariox.org:443'
+            'ETH': 'https://cloudflare-eth.com',
+            'ARB': 'https://arb1.arbitrum.io/rpc',
+            'MATIC': 'https://polygon-rpc.com',
+            'OP': 'https://mainnet.optimism.io',
+            'BASE': 'https://mainnet.base.org',
+            'AVAX': 'https://api.avax.network/ext/bc/C/rpc',
+            'BSC': 'https://bsc-dataseed.binance.org'
         };
 
         const rpcUrl = rpcUrls[chain] || rpcUrls['ETH'];
-        const provider = new ethers.WebSocketProvider(rpcUrl);
+        // Use JsonRpcProvider instead of WebSocketProvider for better stability with public nodes
+        // It uses polling for events which is more reliable than WSS on free tiers
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        // Add error listener to prevent unhandled 'error' events
+        // @ts-ignore - ethers v6 EventEmitter
+        provider.on('error', (error: any) => {
+            console.warn(`[EVM Monitor] Provider Error (${chain}):`, error);
+        });
+
         const monitorId = `${chain}_${address}`;
 
         // Subscribe to new blocks to check balance changes
@@ -77,7 +85,7 @@ export class WalletWebSocketManager {
                     timestamp: Date.now()
                 });
             } catch (error) {
-                console.error(`[EVM Monitor] Error checking balance for ${address}:`, error);
+                console.warn(`[EVM Monitor] Error checking balance for ${address}:`, error);
             }
         });
 
@@ -115,7 +123,9 @@ export class WalletWebSocketManager {
             provider,
             unsubscribe: () => {
                 provider.removeAllListeners();
-                provider.destroy();
+                if (provider.destroy) {
+                    provider.destroy();
+                }
             }
         });
 
@@ -124,42 +134,51 @@ export class WalletWebSocketManager {
 
     // Solana Wallet Monitor
     private async monitorSolana(address: string, name: string) {
-        const connection = new Connection('wss://api.mainnet-beta.solana.com', 'confirmed');
+        const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
         const publicKey = new PublicKey(address);
         const monitorId = `SOL_${address}`;
 
         try {
-            // Subscribe to account changes
-            const subscriptionId = connection.onAccountChange(
-                publicKey,
-                (accountInfo) => {
-                    this.onUpdate({
-                        source: name,
-                        connectionId: monitorId,
-                        type: 'blockchain',
-                        data: {
-                            chain: 'SOL',
-                            address,
-                            balance: accountInfo.lamports / 1e9,
-                            owner: accountInfo.owner.toString()
-                        },
-                        timestamp: Date.now()
-                    });
-                },
-                'confirmed'
-            );
+            // Polling implementation instead of WebSocket for better stability
+            const fetchBalance = async () => {
+                try {
+                    const accountInfo = await connection.getAccountInfo(publicKey);
+                    if (accountInfo) {
+                        this.onUpdate({
+                            source: name,
+                            connectionId: monitorId,
+                            type: 'blockchain',
+                            data: {
+                                chain: 'SOL',
+                                address,
+                                balance: accountInfo.lamports / 1e9,
+                                owner: accountInfo.owner.toString()
+                            },
+                            timestamp: Date.now()
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`[Solana Poll] Error:`, e);
+                }
+            };
+
+            // Initial fetch
+            fetchBalance();
+
+            // Poll every 30 seconds
+            const intervalId = setInterval(fetchBalance, 30000);
 
             this.monitors.set(monitorId, {
                 address,
                 chain: 'SOL',
-                unsubscribe: async () => {
-                    await connection.removeAccountChangeListener(subscriptionId);
+                unsubscribe: () => {
+                    clearInterval(intervalId);
                 }
             });
 
             console.log(`[Solana Monitor] Successfully started monitoring address: ${address}`);
         } catch (error) {
-            console.error(`[Solana Monitor] Error:`, error);
+            console.warn(`[Solana Monitor] Error:`, error);
         }
     }
 
@@ -206,7 +225,7 @@ export class WalletWebSocketManager {
         };
 
         ws.onerror = (error) => {
-            console.error(`[Bitcoin Monitor] WebSocket error:`, error);
+            console.warn(`[Bitcoin Monitor] WebSocket error:`, error);
         };
 
         ws.onclose = () => {
@@ -255,7 +274,7 @@ export class WalletWebSocketManager {
         };
 
         ws.onerror = (error) => {
-            console.error(`[Hedera Monitor] WebSocket error:`, error);
+            console.warn(`[Hedera Monitor] WebSocket error:`, error);
         };
 
         ws.onclose = () => {

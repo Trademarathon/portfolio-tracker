@@ -25,7 +25,7 @@ export function useAlerts() {
             try {
                 setAlerts(JSON.parse(saved));
             } catch (e) {
-                console.error("Failed to parse alerts", e);
+                console.warn("Failed to parse alerts", e);
             }
         }
     }, []);

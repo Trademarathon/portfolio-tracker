@@ -31,7 +31,7 @@ export async function getGlobalFundingRates(): Promise<FundingRate[]> {
                 annualized: parseFloat(item.lastFundingRate) * 3 * 365 * 100 // Approximation
             }));
     } catch (error) {
-        console.error("Error fetching funding rates:", error);
+        console.warn("Error fetching funding rates:", error);
         return [];
     }
 }

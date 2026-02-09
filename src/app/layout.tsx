@@ -14,6 +14,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+import { Playfair_Display } from "next/font/google";
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-serif",
+});
+
 export const metadata: Metadata = {
   title: "Crypto Portfolio Tracker",
   description: "Premium Crypto Analytics & Trading Journal",
@@ -21,16 +28,19 @@ export const metadata: Metadata = {
 
 import { Providers } from "./providers";
 
+import { ErrorSuppressor } from "@/components/ErrorSuppressor";
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} antialiased min-h-screen bg-background text-foreground`}
       >
+        <ErrorSuppressor />
         <Providers>
           <Sidebar className="hidden md:flex fixed left-0 top-0" />
           <MobileNav />

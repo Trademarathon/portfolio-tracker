@@ -64,7 +64,7 @@ function ScreenerContent() {
                     <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2">
                             <Activity className="h-5 w-5 text-primary" />
-                            <h1 className="text-sm font-black uppercase tracking-[0.2em] text-white">TM Screener</h1>
+                            <h1 className="text-sm font-serif font-black uppercase tracking-[0.2em] text-white">TM Screener</h1>
                         </div>
                         <div className="h-4 w-[1px] bg-white/10" />
                         <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest text-zinc-500">

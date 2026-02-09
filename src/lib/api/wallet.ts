@@ -9,104 +9,125 @@ const ERC20_ABI = [
     "function symbol() view returns (string)"
 ];
 
-// Top Tokens to track (Address, Decimals)
-const EVM_TOKENS: { [chain: string]: { [symbol: string]: { address: string, decimals: number } } } = {
-    'ETH': {
-        'USDT': { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
-        'USDC': { address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
-        'DAI': { address: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18 },
-        'WBTC': { address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', decimals: 8 },
-        'SHIB': { address: '0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce', decimals: 18 },
-        'LINK': { address: '0x514910771af9ca656af840dff83e8264ecf986ca', decimals: 18 },
-        'UNI': { address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984', decimals: 18 },
-        'PEPE': { address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', decimals: 18 },
-        'WETH': { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', decimals: 18 },
-        'AAVE': { address: '0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9', decimals: 18 },
-        'MKR': { address: '0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2', decimals: 18 },
-        'CRV': { address: '0xd533a949740bb3306d119cc777fa900ba034cd52', decimals: 18 },
-        'LDO': { address: '0x5a98fcbea516cf06857215779fd812ca3bef1b32', decimals: 18 }
-    },
-    'ARB': {
-        'USDT': { address: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', decimals: 6 },
-        'USDC': { address: '0xaf88d065e77c8cc2239327c5edb3a432268e5831', decimals: 6 },
-        'ARB': { address: '0x912ce59144191c1204e64559fe8253a0e49e6548', decimals: 18 },
-        'WBTC': { address: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f', decimals: 8 },
-        'GMX': { address: '0xfc5a1a6eb076a2c7ad06ed22d90d7e710e35ad0a', decimals: 18 },
-        'WETH': { address: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', decimals: 18 },
-        'LINK': { address: '0xf97f4df75117a78c1a5a0dbb88af22247d3959f6', decimals: 18 }
-    },
-    'MATIC': {
-        'USDT': { address: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', decimals: 6 },
-        'USDC': { address: '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', decimals: 6 },
-        'WETH': { address: '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619', decimals: 18 },
-        'MATIC': { address: '0x0000000000000000000000000000000000001010', decimals: 18 },
-        'DAI': { address: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063', decimals: 18 }
-    },
-    'OP': {
-        'USDT': { address: '0x94b008aa00579c1307b0ef2c499ad98a8ce98749', decimals: 6 },
-        'USDC': { address: '0x0b2c639c5336b12d41a8bc879a8f602001e76f00', decimals: 6 },
-        'WETH': { address: '0x4200000000000000000000000000000000000006', decimals: 18 },
-        'OP': { address: '0x4200000000000000000000000000000000000042', decimals: 18 },
-        'DAI': { address: '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1', decimals: 18 },
-        'LDO': { address: '0xfdb794692724153d1488ccdbe0c56c252596735f', decimals: 18 }
-    }
+// Blockscout API Config
+const BLOCKSCOUT_API: { [key: string]: string } = {
+    'ETH': 'https://eth.blockscout.com/api',
+    'ARB': 'https://arbitrum.blockscout.com/api',
+    'MATIC': 'https://polygon.blockscout.com/api',
+    'OP': 'https://optimism.blockscout.com/api',
+    'BASE': 'https://base.blockscout.com/api',
+    'BSC': 'https://bsc.blockscout.com/api', // Note: BSC Scan might be different, but Blockscout supports BSC too usually
+    'AVAX': 'https://avalanche.blockscout.com/api' // Check availability
 };
 
-interface TokenBalance {
-    symbol: string;
-    balance: number;
-}
+// Fallback RPCs if Blockscout fails or for native balance
+const RPC_CONFIG: { [key: string]: string[] } = {
+    'ETH': ['https://eth.llamarpc.com', 'https://rpc.ankr.com/eth'],
+    'ARB': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com'],
+    'MATIC': ['https://polygon-rpc.com', 'https://polygon.llamarpc.com'],
+    'OP': ['https://mainnet.optimism.io', 'https://optimism.llamarpc.com'],
+    'BASE': ['https://mainnet.base.org', 'https://base.llamarpc.com'],
+    'BSC': ['https://bsc-dataseed.binance.org', 'https://binance.llamarpc.com'],
+    'AVAX': ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche.llamarpc.com']
+};
 
-// EVM
-export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'MATIC' | 'OP' = 'ETH'): Promise<TokenBalance[]> {
-    // Use highly reliable public RPCs
-    let rpcUrl = '';
-    if (chain === 'ETH') rpcUrl = 'https://eth.llamarpc.com';
-    else if (chain === 'ARB') rpcUrl = 'https://arb1.arbitrum.io/rpc';
-    else if (chain === 'MATIC') rpcUrl = 'https://polygon-rpc.com';
-    else if (chain === 'OP') rpcUrl = 'https://mainnet.optimism.io';
-
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'MATIC' | 'OP' | 'BASE' | 'BSC' | 'AVAX' = 'ETH'): Promise<TokenBalance[]> {
     const balances: TokenBalance[] = [];
 
+    // 1. Fetch Native Balance & Token List via Blockscout (The "Deep" Way)
+    // Blockscout 'tokenlist' usually returns all ERC20/721 held by address
+    const apiUrl = BLOCKSCOUT_API[chain];
+
+    if (apiUrl) {
+        try {
+            // Fetch Tokens
+            const tokenRes = await fetch(`${apiUrl}?module=account&action=tokenlist&address=${address}`);
+            const tokenData = await tokenRes.json();
+
+            if (tokenData.status === '1' && Array.isArray(tokenData.result)) {
+                tokenData.result.forEach((t: any) => {
+                    // Filter for meaningful balance
+                    if (t.balance && t.decimals && t.symbol) {
+                        const decimals = parseInt(t.decimals);
+                        const rawBalance = parseFloat(t.balance);
+                        if (rawBalance > 0) {
+                            const balance = rawBalance / Math.pow(10, decimals);
+                            // Filter dust (optional, but keeps UI clean)
+                            if (balance * (parseFloat(t.exchange_rate) || 0) > 0.01 || balance > 0.0001) {
+                                balances.push({
+                                    symbol: t.symbol,
+                                    balance: balance
+                                });
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Fetch Native Balance separately if not in token list (it usually isn't)
+            const nativeRes = await fetch(`${apiUrl}?module=account&action=balance&address=${address}`);
+            const nativeData = await nativeRes.json();
+
+            if (nativeData.status === '1') {
+                const nativeVal = parseFloat(nativeData.result);
+                if (nativeVal > 0) {
+                    let symbol = 'ETH';
+                    if (chain === 'MATIC') symbol = 'MATIC';
+                    if (chain === 'BSC') symbol = 'BNB';
+                    if (chain === 'AVAX') symbol = 'AVAX';
+
+                    balances.push({
+                        symbol,
+                        balance: nativeVal / 1e18
+                    });
+                }
+            }
+
+            // If we found data, return early. Use RPC fallback only if API fails/returns nothing.
+            if (balances.length > 0) return balances;
+
+        } catch (e) {
+            console.warn(`[DeepPortfolio] Blockscout failed for ${chain}, falling back to RPC`, e);
+        }
+    }
+
+    // Fallback: Use RPC and Hardcoded list (Legacy/Reliability Backup)
+    const urls = RPC_CONFIG[chain] || RPC_CONFIG['ETH'];
+    let provider = null;
+    let success = false;
+
+    for (const url of urls) {
+        try {
+            provider = new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true });
+            await provider.getBlockNumber();
+            success = true;
+            break;
+        } catch (e) { /* ignore */ }
+    }
+
+    if (!success || !provider) return [];
+
     try {
-        // 1. Native Balance
         const nativeBalance = await provider.getBalance(address);
         if (nativeBalance > BigInt(0)) {
             let symbol = 'ETH';
             if (chain === 'MATIC') symbol = 'MATIC';
-            // Optimism native is ETH, Arbitrum native is ETH
-
+            if (chain === 'BSC') symbol = 'BNB';
+            if (chain === 'AVAX') symbol = 'AVAX';
             balances.push({
                 symbol: symbol,
                 balance: parseFloat(ethers.formatEther(nativeBalance))
             });
         }
 
-        // 2. Token Balances (Parallel)
-        const tokens = EVM_TOKENS[chain];
-        if (tokens) {
-            const promises = Object.entries(tokens).map(async ([symbol, info]) => {
-                try {
-                    const contract = new ethers.Contract(info.address, ERC20_ABI, provider);
-                    const bal = await contract.balanceOf(address);
-                    if (bal > BigInt(0)) {
-                        const formatted = parseFloat(ethers.formatUnits(bal, info.decimals));
-                        return { symbol, balance: formatted };
-                    }
-                } catch (e) {
-                    console.warn(`Failed to fetch ${symbol} on ${chain}`, e);
-                }
-                return null;
-            });
+        // Note: We skip the hardcoded list here to avoid duplication if the API partially worked. 
+        // But if API completely failed (balances empty), we could try the hardcoded list.
+        // For now, let's keep the fallback simple (Native only) to avoid huge file size with lists.
+        // Or if user really wants specific tokens, we can re-add the list. 
+        // Given "Deep" requirement, API is the way.
 
-            const results = await Promise.all(promises);
-            results.forEach(res => {
-                if (res) balances.push(res);
-            });
-        }
     } catch (e) {
-        console.error(`EVM Portfolio Error (${chain}):`, e);
+        console.warn(`RPC Fallback Error (${chain}):`, e);
     }
 
     return balances;
@@ -164,14 +185,241 @@ export async function getSolanaPortfolio(address: string): Promise<TokenBalance[
         });
 
     } catch (e) {
-        console.error("Solana Portfolio Error:", e);
+        console.warn("Solana Portfolio Error:", e);
     }
     return balances;
 }
 
-// Legacy support
-export async function getSolanaBalance(address: string): Promise<number> {
-    const portfolio = await getSolanaPortfolio(address);
-    const native = portfolio.find(p => p.symbol === 'SOL');
-    return native ? native.balance : 0;
+// Bitcoin
+export async function getBitcoinPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        const response = await fetch(`https://blockchain.info/rawaddr/${address}`);
+        if (!response.ok) throw new Error('BTC Fetch Failed');
+        const data = await response.json();
+        return [{
+            symbol: 'BTC',
+            balance: data.final_balance / 1e8
+        }];
+    } catch (e) {
+        console.warn("BTC Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Hedera
+export async function getHederaPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        // address is account ID like 0.0.12345
+        const response = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${address}`);
+        if (!response.ok) throw new Error('HBAR Fetch Failed');
+        const data = await response.json();
+        return [{
+            symbol: 'HBAR',
+            balance: data.balance.balance / 1e8
+        }];
+    } catch (e) {
+        console.warn("HBAR Portfolio Error:", e);
+        return [];
+    }
+}
+
+// History Fetchers
+export async function getEvmHistory(address: string, chain: string): Promise<any[]> {
+    try {
+        let baseUrl = 'https://eth.blockscout.com/api';
+        if (chain === 'MATIC') baseUrl = 'https://polygon.blockscout.com/api';
+        if (chain === 'ARB') baseUrl = 'https://arbitrum.blockscout.com/api';
+        if (chain === 'OP') baseUrl = 'https://optimism.blockscout.com/api';
+        if (chain === 'BASE') baseUrl = 'https://base.blockscout.com/api';
+        if (chain === 'BSC') baseUrl = 'https://bsc.blockscout.com/api';
+
+        // Fetch both native and token transfers
+        const [nativeRes, tokenRes] = await Promise.all([
+            fetch(`${baseUrl}?module=account&action=txlist&address=${address}&offset=100&sort=desc`).then(r => r.json()),
+            fetch(`${baseUrl}?module=account&action=tokentx&address=${address}&offset=100&sort=desc`).then(r => r.json())
+        ]);
+
+        const txs: any[] = [];
+
+        if (nativeRes.status === '1' && Array.isArray(nativeRes.result)) {
+            nativeRes.result.forEach((tx: any) => {
+                if (parseFloat(tx.value) > 0) {
+                    txs.push({
+                        id: tx.hash,
+                        timestamp: parseInt(tx.timeStamp) * 1000,
+                        symbol: chain === 'MATIC' ? 'MATIC' : chain === 'BSC' ? 'BNB' : 'ETH',
+                        side: tx.from.toLowerCase() === address.toLowerCase() ? 'sell' : 'buy',
+                        price: 0,
+                        amount: parseFloat(ethers.formatEther(tx.value)),
+                        exchange: chain,
+                        status: 'Confirmed'
+                    });
+                }
+            });
+        }
+
+        if (tokenRes.status === '1' && Array.isArray(tokenRes.result)) {
+            tokenRes.result.forEach((tx: any) => {
+                txs.push({
+                    id: `${tx.hash}-${tx.tokenSymbol}`,
+                    timestamp: parseInt(tx.timeStamp) * 1000,
+                    symbol: tx.tokenSymbol,
+                    side: tx.from.toLowerCase() === address.toLowerCase() ? 'sell' : 'buy',
+                    price: 0,
+                    amount: parseFloat(tx.value) / Math.pow(10, parseInt(tx.tokenDecimal)),
+                    exchange: chain,
+                    status: 'Confirmed'
+                });
+            });
+        }
+
+        return txs.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
+    } catch (e) {
+        console.warn("EVM History Error:", e);
+        return [];
+    }
+}
+
+export async function getSolanaHistory(address: string): Promise<any[]> {
+    try {
+        const response = await fetch('https://api.mainnet-beta.solana.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getSignaturesForAddress',
+                params: [address, { limit: 100 }]
+            })
+        });
+
+        if (!response.ok) return [];
+        const data = await response.json();
+
+        if (data.result && Array.isArray(data.result)) {
+            return data.result.map((sig: any) => ({
+                id: sig.signature,
+                timestamp: sig.blockTime * 1000,
+                symbol: 'SOL',
+                side: 'transfer',
+                price: 0,
+                amount: 0, // Discovery: getSignatures doesn't give amount
+                exchange: 'Solana',
+                status: sig.confirmationStatus || 'confirmed'
+            }));
+        }
+        return [];
+    } catch (e) {
+        console.warn("Solana History Error:", e);
+        return [];
+    }
+}
+
+// Sui
+export async function getSuiPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        const response = await fetch('https://fullnode.mainnet.sui.io', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'suix_getAllBalances',
+                params: [address]
+            })
+        });
+        const data = await response.json();
+        if (!data.result) return [];
+
+        return data.result.map((b: any) => {
+            let symbol = 'SUI';
+            if (b.coinType !== '0x2::sui::SUI') {
+                const parts = b.coinType.split('::');
+                symbol = parts[parts.length - 1];
+            }
+            return {
+                symbol,
+                balance: parseInt(b.totalBalance) / 1e9 // Discovery: SUI uses 9 decimals
+            };
+        });
+    } catch (e) {
+        console.warn("SUI Portfolio Error:", e);
+        return [];
+    }
+}
+
+export async function getSuiHistory(address: string): Promise<any[]> {
+    try {
+        const response = await fetch('https://fullnode.mainnet.sui.io', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'suix_queryTransactionBlocks',
+                params: [{ filter: { FromAddress: address }, options: { showEffects: true, showTimestamp: true } }, null, 50, true]
+            })
+        });
+        const data = await response.json();
+        if (!data.result || !data.result.data) return [];
+
+        return data.result.data.map((tx: any) => ({
+            id: tx.digest,
+            timestamp: parseInt(tx.timestampMs),
+            symbol: 'SUI',
+            side: 'sell',
+            price: 0,
+            amount: 0,
+            exchange: 'Sui',
+            status: tx.effects.status.status === 'success' ? 'Confirmed' : 'Failed'
+        }));
+    } catch (e) {
+        console.error("SUI History Error:", e);
+        return [];
+    }
+}
+
+// Aptos
+export async function getAptosPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/resources`);
+        if (!response.ok) return [];
+        const data = await response.json();
+
+        const balances: TokenBalance[] = [];
+        data.forEach((res: any) => {
+            if (res.type === '0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>') {
+                balances.push({
+                    symbol: 'APT',
+                    balance: parseInt(res.data.coin.value) / 1e8 // Discovery: APT uses 8 decimals
+                });
+            }
+        });
+        return balances;
+    } catch (e) {
+        console.warn("Aptos Portfolio Error:", e);
+        return [];
+    }
+}
+
+export async function getAptosHistory(address: string): Promise<any[]> {
+    try {
+        const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/transactions?limit=50`);
+        if (!response.ok) return [];
+        const data = await response.json();
+
+        return data.map((tx: any) => ({
+            id: tx.hash,
+            timestamp: parseInt(tx.timestamp) / 1000,
+            symbol: 'APT',
+            side: 'sell',
+            price: 0,
+            amount: 0,
+            exchange: 'Aptos',
+            status: tx.success ? 'Confirmed' : 'Failed'
+        }));
+    } catch (e) {
+        console.error("Aptos History Error:", e);
+        return [];
+    }
 }

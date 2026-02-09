@@ -1,13 +1,12 @@
-"use client";
-
 import { usePortfolioData } from "@/hooks/usePortfolioData";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ArrowUp, ArrowDown } from "lucide-react";
+import { ArrowUp, ArrowDown, List as ListIcon, Clock } from "lucide-react";
 import { useEffect, useState, CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { PortfolioAsset } from "@/lib/api/types";
+import { SpotOrdersTable } from "./SpotOrdersTable";
 
 const PriceCell = ({ price, prevPrice }: { price: number, prevPrice: number }) => {
     const [flash, setFlash] = useState<'up' | 'down' | null>(null);
@@ -36,11 +35,9 @@ const PriceCell = ({ price, prevPrice }: { price: number, prevPrice: number }) =
 };
 
 export default function HoldingsTable({ assets: propAssets }: { assets?: PortfolioAsset[] }) {
-    const { assets: hookAssets, loading } = usePortfolioData();
+    const { assets: hookAssets, spotOrders, loading } = usePortfolioData();
     const assets = (propAssets || hookAssets).sort((a, b) => b.valueUsd - a.valueUsd);
-
-    // We can't easily track prevPrices for virtualized rows in parent state without a robust id-keyed map.
-    // Simplifying for now: we pass individual asset data.
+    const [activeTab, setActiveTab] = useState<'holdings' | 'orders'>('holdings');
 
     if (loading) {
         return (
@@ -50,14 +47,14 @@ export default function HoldingsTable({ assets: propAssets }: { assets?: Portfol
         );
     }
 
-    if (assets.length === 0 && !loading) {
+    if (assets.length === 0 && spotOrders.length === 0 && !loading) {
         return (
             <Card className="border-white/10 bg-card/50 backdrop-blur-sm mt-6">
                 <CardHeader>
-                    <CardTitle>Your Holdings</CardTitle>
+                    <CardTitle>Spot Ecosystem</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground space-y-4">
-                    <p>No assets found.</p>
+                    <p>No assets or orders found.</p>
                     <p className="text-sm">Go to <a href="/settings" className="text-primary hover:underline">Settings</a> to connect your wallets and exchanges.</p>
                 </CardContent>
             </Card>
@@ -81,7 +78,6 @@ export default function HoldingsTable({ assets: propAssets }: { assets?: Portfol
 
                     <div className="flex-1 text-right text-sm">
                         <PriceCell price={asset.price || 0} prevPrice={0} />
-                        {/* prevPrice 0 disables flash for now on re-render, improves perfs */}
                     </div>
 
                     <div className="flex-1 text-right text-sm">
@@ -117,33 +113,66 @@ export default function HoldingsTable({ assets: propAssets }: { assets?: Portfol
 
     return (
         <Card className="border-white/10 bg-card/50 backdrop-blur-sm mt-6">
-            <CardHeader>
-                <CardTitle>Your Holdings</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <CardTitle>Spot Ecosystem</CardTitle>
+                <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
+                    <button
+                        onClick={() => setActiveTab('holdings')}
+                        className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-md transition-all",
+                            activeTab === 'holdings' ? "bg-primary text-primary-foreground shadow-lg" : "text-muted-foreground hover:bg-white/5"
+                        )}
+                    >
+                        <ListIcon className="w-3.5 h-3.5" />
+                        Holdings
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('orders')}
+                        className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-md transition-all",
+                            activeTab === 'orders' ? "bg-primary text-primary-foreground shadow-lg" : "text-muted-foreground hover:bg-white/5"
+                        )}
+                    >
+                        <Clock className="w-3.5 h-3.5" />
+                        Open Orders
+                        {spotOrders.length > 0 && (
+                            <span className="ml-1 px-1.5 py-0.5 bg-black/20 rounded-full text-[10px]">
+                                {spotOrders.length}
+                            </span>
+                        )}
+                    </button>
+                </div>
             </CardHeader>
-            <CardContent className="h-[500px] flex flex-col">
-                {/* Header */}
-                <div className="flex items-center h-10 border-b border-white/5 text-muted-foreground text-xs font-medium uppercase tracking-wider px-2">
-                    <div className="flex-[2] min-w-[140px]">Asset</div>
-                    <div className="flex-1 text-right">Price</div>
-                    <div className="flex-1 text-right">Balance</div>
-                    <div className="flex-1 text-right">Value (USD)</div>
-                    <div className="flex-1 text-right">24h</div>
-                    <div className="w-[80px] text-right px-2">Allocation</div>
-                </div>
+            <CardContent className="h-[500px] flex flex-col p-2">
+                {activeTab === 'holdings' ? (
+                    <>
+                        <div className="flex items-center h-10 border-b border-white/5 text-muted-foreground text-xs font-medium uppercase tracking-wider px-2">
+                            <div className="flex-[2] min-w-[140px]">Asset</div>
+                            <div className="flex-1 text-right">Price</div>
+                            <div className="flex-1 text-right">Balance</div>
+                            <div className="flex-1 text-right">Value (USD)</div>
+                            <div className="flex-1 text-right">24h</div>
+                            <div className="w-[80px] text-right px-2">Allocation</div>
+                        </div>
 
-                {/* List */}
-                <div className="flex-1">
-                    <AutoSizer renderProp={({ height, width }: { height: number | undefined; width: number | undefined }) => (
-                        <List<{}>
-                            rowCount={assets.length}
-                            rowHeight={60}
-                            rowComponent={Row}
-                            rowProps={{}}
-                            style={{ height, width }}
-                            className="custom-scrollbar"
-                        />
-                    )} />
-                </div>
+                        <div className="flex-1">
+                            <AutoSizer renderProp={({ height, width }: { height: number | undefined; width: number | undefined }) => (
+                                <List<{}>
+                                    rowCount={assets.length}
+                                    rowHeight={60}
+                                    rowComponent={Row}
+                                    rowProps={{}}
+                                    style={{ height, width }}
+                                    className="custom-scrollbar"
+                                />
+                            )} />
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex-1 mt-2">
+                        <SpotOrdersTable orders={spotOrders} />
+                    </div>
+                )}
             </CardContent>
         </Card>
     );

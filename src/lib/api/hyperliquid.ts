@@ -105,7 +105,7 @@ export async function getHyperliquidAccountState(userAddress: string): Promise<H
 
         return await response.json();
     } catch (error) {
-        console.error('Error fetching Hyperliquid data:', error);
+        console.warn('Error fetching Hyperliquid data:', error);
         return null;
     }
 }
@@ -120,7 +120,7 @@ export async function getHyperliquidSpotMeta(): Promise<SpotMeta | null> {
         if (!response.ok) throw new Error('Failed to fetch Spot Meta');
         return await response.json();
     } catch (error) {
-        console.error('Error fetching Hyperliquid Spot Meta:', error);
+        console.warn('Error fetching Hyperliquid Spot Meta:', error);
         return null;
     }
 }
@@ -135,7 +135,7 @@ export async function getHyperliquidPerpsMeta(): Promise<PerpsMeta | null> {
         if (!response.ok) throw new Error('Failed to fetch Perps Meta');
         return await response.json();
     } catch (error) {
-        console.error('Error fetching Hyperliquid Perps Meta:', error);
+        console.warn('Error fetching Hyperliquid Perps Meta:', error);
         return null;
     }
 }
@@ -153,7 +153,7 @@ export async function getHyperliquidAllAssets(): Promise<{ perp: string[], spot:
 
         return { perp, spot };
     } catch (error) {
-        console.error('Error fetching Hyperliquid All Assets:', error);
+        console.warn('Error fetching Hyperliquid All Assets:', error);
         return { perp: [], spot: [] };
     }
 }
@@ -190,7 +190,45 @@ export async function getHyperliquidUserFills(userAddress: string): Promise<User
         if (!response.ok) return [];
         return await response.json();
     } catch (error) {
-        console.error('Error fetching Hyperliquid Fills:', error);
+        console.warn('Error fetching Hyperliquid Fills:', error);
+        return [];
+    }
+}
+
+export async function getHyperliquidUserTransfers(userAddress: string): Promise<any[]> {
+    try {
+        const response = await fetch(HYPERLIQUID_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'userNonAccountTransfers',
+                user: userAddress
+            })
+        });
+
+        if (!response.ok) return [];
+        return await response.json();
+    } catch (error) {
+        console.warn('Error fetching Hyperliquid Transfers:', error);
+        return [];
+    }
+}
+
+export async function getHyperliquidUserFunding(userAddress: string): Promise<any[]> {
+    try {
+        const response = await fetch(HYPERLIQUID_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'userFunding',
+                user: userAddress
+            })
+        });
+
+        if (!response.ok) return [];
+        return await response.json();
+    } catch (error) {
+        console.warn('Error fetching Hyperliquid Funding:', error);
         return [];
     }
 }
@@ -214,4 +252,71 @@ export function parseHyperliquidPositions(state: HyperliquidState): Position[] {
                 side: side,
             };
         });
+}
+
+export async function getHyperliquidOpenOrders(userAddress: string): Promise<any[]> {
+    try {
+        const response = await fetch(HYPERLIQUID_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'openOrders',
+                user: userAddress
+            })
+        });
+
+        if (!response.ok) return [];
+        const orders = await response.json();
+
+        return orders.map((o: any) => ({
+            id: o.oid,
+            symbol: o.coin,
+            type: o.orderType || 'limit',
+            side: o.side === 'B' ? 'buy' : 'sell',
+            price: parseFloat(o.limitPx),
+            amount: parseFloat(o.sz),
+            filled: 0, // Hyperliquid doesn't show partial fill in this endpoint easily
+            remaining: parseFloat(o.sz),
+            status: 'open',
+            timestamp: o.timestamp,
+            exchange: 'hyperliquid'
+        }));
+    } catch (error) {
+        console.warn('Error fetching Hyperliquid Open Orders:', error);
+        return [];
+    }
+}
+
+export interface L2BookParams {
+    coin: string;
+    nSigFigs?: number;
+    mantissa?: number;
+}
+
+export interface L2Book {
+    coin: string;
+    levels: [Array<{ px: string; sz: string; n: number }>, Array<{ px: string; sz: string; n: number }>];
+}
+
+export async function getHyperliquidL2Book(coin: string, nSigFigs?: number, mantissa?: number): Promise<L2Book> {
+    try {
+        const body: any = {
+            type: 'l2Book',
+            coin
+        };
+        if (nSigFigs) body.nSigFigs = nSigFigs;
+        if (mantissa) body.mantissa = mantissa;
+
+        const response = await fetch(HYPERLIQUID_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch L2 Book');
+        return await response.json();
+    } catch (error) {
+        console.warn('Error fetching Hyperliquid L2 Book:', error);
+        return { coin, levels: [[], []] };
+    }
 }

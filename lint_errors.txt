@@ -1,0 +1,800 @@
+
+> crypto-portfolio-tracker@0.1.0 lint
+> eslint
+
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/binance/listen-key-futures/route.ts
+  26:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  60:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/binance/listen-key/route.ts
+  69:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/cex/balance/route.ts
+  12:23  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  16:9   error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  17:39  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  25:21  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/cex/open-orders/route.ts
+  12:23  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  16:9   error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  17:39  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  26:49  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  42:21  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/cex/trades/route.ts
+  43:18  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  61:30  warning  'ignore' is defined but never used        @typescript-eslint/no-unused-vars
+  66:35  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  85:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/cex/transfers/route.ts
+  30:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  50:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/journal/sync/route.ts
+   18:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  117:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/wallet/history/route.ts
+  24:62  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  28:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/api/wallet/portfolio/route.ts
+  28:65  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  32:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/balances/page.tsx
+  6:10  warning  'Wallet' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/journal/page.tsx
+   44:64   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+   56:25   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+   57:45   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+  222:33   error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  222:113  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/markets/page.tsx
+  19:32  warning  'isLoading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/page.tsx
+  73:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/page.tsx:73:5
+  71 |
+  72 |   useEffect(() => {
+> 73 |     setHasHydrated(true);
+     |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  74 |   }, []);
+  75 |
+  76 |   // Default symbols if user has no assets, so the dashboard isn't a graveyard  react-hooks/set-state-in-effect
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/settings/page.tsx
+   11:10   warning  'usePortfolioData' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+   81:9    error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/settings/page.tsx:81:9
+  79 |
+  80 |     useEffect(() => {
+> 81 |         setIsDemoMode(localStorage.getItem("demo_mode") === "true");
+     |         ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  82 |     }, []);
+  83 |
+  84 |     const toggleDemoMode = () => {                                                                                                        react-hooks/set-state-in-effect
+  128:13   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/settings/page.tsx:128:13
+  126 |
+  127 |         if (savedConnections) {
+> 128 |             setConnections(JSON.parse(savedConnections));
+      |             ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  129 |         } else {
+  130 |             // MIGRATION: Check for old keys and migrate
+  131 |             const oldKeys = localStorage.getItem("api_keys");  react-hooks/set-state-in-effect
+  170:41   error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  346:127  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  591:108  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/transactions/page.tsx
+  7:25  warning  'loading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/transfers/page.tsx
+  7:25  warning  'loading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/watchlist/page.tsx
+  11:5   warning  'TrendingUp' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-unused-vars
+  12:5   warning  'Filter' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
+  13:5   warning  'Search' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
+  14:5   warning  'ChevronRight' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @typescript-eslint/no-unused-vars
+  15:5   warning  'LayoutDashboard' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          @typescript-eslint/no-unused-vars
+  36:13  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/app/watchlist/page.tsx:36:13
+  34 |         const symbol = searchParams.get("symbol");
+  35 |         if (symbol && symbol !== selectedSymbol) {
+> 36 |             setSelectedSymbol(symbol);
+     |             ^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  37 |             setIsChartVisible(true);
+  38 |         }
+  39 |     }, [searchParams]);  react-hooks/set-state-in-effect
+  39:8   warning  React Hook useEffect has a missing dependency: 'selectedSymbol'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx
+   4:10  warning  'Card' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+   4:16  warning  'CardContent' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+  35:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:35:14
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">
+> 35 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  36 |                 label="Total PNL ($)"
+  37 |                 value={`${metrics.totalPnl >= 0 ? '+' : ''}${metrics.totalPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+  38 |                 color={metrics.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">  react-hooks/static-components
+  40:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:40:14
+  38 |                 color={metrics.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}
+  39 |             />
+> 40 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  41 |                 label="Win Rate"
+  42 |                 value={`${metrics.winRate.toFixed(1)}%`}
+  43 |                 subValue={`${metrics.winCount} / ${metrics.totalTrades}`}
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                                                                               react-hooks/static-components
+  45:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:45:14
+  43 |                 subValue={`${metrics.winCount} / ${metrics.totalTrades}`}
+  44 |             />
+> 45 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  46 |                 label="Average Win"
+  47 |                 value={`$${metrics.avgWin.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+  48 |                 color="text-emerald-400/80"
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                                                                        react-hooks/static-components
+  50:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:50:14
+  48 |                 color="text-emerald-400/80"
+  49 |             />
+> 50 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  51 |                 label="Average Loss"
+  52 |                 value={`$${metrics.avgLoss.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+  53 |                 color="text-red-400/80"
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                                                                                                        react-hooks/static-components
+  55:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:55:14
+  53 |                 color="text-red-400/80"
+  54 |             />
+> 55 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  56 |                 label="Volume Traded"
+  57 |                 value={`$${(metrics.volumeTraded / 1000).toFixed(1)}k`}
+  58 |             />
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                                                                                                                                                                  react-hooks/static-components
+  59:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:59:14
+  57 |                 value={`$${(metrics.volumeTraded / 1000).toFixed(1)}k`}
+  58 |             />
+> 59 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  60 |                 label="Profit Factor"
+  61 |                 value={metrics.profitFactor.toFixed(2)}
+  62 |                 color={metrics.profitFactor >= 2 ? 'text-emerald-400' : metrics.profitFactor >= 1 ? 'text-zinc-100' : 'text-orange-400'}
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                        react-hooks/static-components
+  64:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:64:14
+  62 |                 color={metrics.profitFactor >= 2 ? 'text-emerald-400' : metrics.profitFactor >= 1 ? 'text-zinc-100' : 'text-orange-400'}
+  63 |             />
+> 64 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  65 |                 label="Win Count"
+  66 |                 value={metrics.winCount.toString()}
+  67 |             />
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                                                                                         react-hooks/static-components
+  68:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:68:14
+  66 |                 value={metrics.winCount.toString()}
+  67 |             />
+> 68 |             <MetricItem
+     |              ^^^^^^^^^^ This component is created during render
+  69 |                 label="Loss Count"
+  70 |                 value={metrics.lossCount.toString()}
+  71 |             />
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AdvancedMetrics.tsx:23:24
+  21 |
+  22 | export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
+> 23 |     const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |         <div className="flex flex-col gap-1">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 25 |             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 26 |             <div className="flex items-baseline gap-2">
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 27 |                 <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 28 |                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 29 |             </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 30 |         </div>
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     );
+     | ^^^^^^ The component is created during render here
+  32 |
+  33 |     return (
+  34 |         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">                                                                                                                                                                                            react-hooks/static-components
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/AnalyticsCharts.tsx
+  27:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/ConnectionStatus.tsx
+  3:35  warning  'AlertCircle' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/DrawdownMeter.tsx
+   4:10  warning  'AlertTriangle' is defined but never used   @typescript-eslint/no-unused-vars
+  15:66  warning  'current' is defined but never used         @typescript-eslint/no-unused-vars
+  15:75  warning  'color' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/FeeRatioWidget.tsx
+  5:16  warning  'Zap' is defined but never used         @typescript-eslint/no-unused-vars
+  5:21  warning  'LayoutGrid' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/FundingRateWidget.tsx
+   7:10  warning  'ArrowUpRight' is defined but never used           @typescript-eslint/no-unused-vars
+   7:24  warning  'ArrowDownRight' is defined but never used         @typescript-eslint/no-unused-vars
+   7:40  warning  'Minus' is defined but never used                  @typescript-eslint/no-unused-vars
+   7:57  warning  'TrendingUp' is defined but never used             @typescript-eslint/no-unused-vars
+   7:69  warning  'TrendingDown' is defined but never used           @typescript-eslint/no-unused-vars
+  73:11  warning  'meterPercent' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/HoldingsTable.tsx
+   16:13  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/HoldingsTable.tsx:16:13
+  14 |     useEffect(() => {
+  15 |         if (prevPrice && price > prevPrice) {
+> 16 |             setFlash('up');
+     |             ^^^^^^^^ Avoid calling setState() directly within an effect
+  17 |             const timer = setTimeout(() => setFlash(null), 1000);
+  18 |             return () => clearTimeout(timer);
+  19 |         } else if (prevPrice && price < prevPrice) {  react-hooks/set-state-in-effect
+  160:39  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    @typescript-eslint/no-empty-object-type
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/OverviewCard.tsx
+  5:8  warning  'Image' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/RecentActivity.tsx
+   50:13   error  'typeLabel' is never reassigned. Use 'const' instead                                                                                                                                                                                                                                                                                                                                       prefer-const
+   50:43   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   50:103  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   55:34   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   62:34   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   67:42   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   72:38   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   74:34   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   74:57   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   76:31   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   76:57   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+  100:34   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+  290:47   error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/SessionAnalysis.tsx
+  35:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/SpotHighlights.tsx
+  3:44  warning  'AlertCircle' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/SpotOrdersTable.tsx
+    7:10  warning  'motion' is defined but never used                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+  101:23  error    The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Dashboard/TransactionHistory.tsx
+  45:37   error  'typeLabel' is never reassigned. Use 'const' instead  prefer-const
+  45:66   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  45:112  error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  49:56   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  51:56   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  65:63   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  65:84   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  72:63   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  74:65   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  74:87   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  75:62   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  75:87   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  79:63   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  79:86   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Journal/JournalCalendar.tsx
+  68:27  warning  'isSelected' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  85:29  warning  'textClass' is assigned a value but never used   @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Journal/TradingStats.tsx
+  68:99  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Layout/MobileNav.tsx
+  16:9  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Layout/MobileNav.tsx:16:9
+  14 |     // Close sidebar when route changes
+  15 |     useEffect(() => {
+> 16 |         setIsOpen(false);
+     |         ^^^^^^^^^ Avoid calling setState() directly within an effect
+  17 |     }, [pathname]);
+  18 |
+  19 |     // Prevent body scroll when menu is open  react-hooks/set-state-in-effect
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Layout/Sidebar.tsx
+  14:5   warning  'Star' is defined but never used                     @typescript-eslint/no-unused-vars
+  72:10  warning  'useWebSocketStatus' is defined but never used       @typescript-eslint/no-unused-vars
+  73:10  warning  'WebSocketConnectionInfo' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Screener/AlertsSidebar.tsx
+   3:10  warning  'Alert' is defined but never used      @typescript-eslint/no-unused-vars
+  11:5   warning  'Settings2' is defined but never used  @typescript-eslint/no-unused-vars
+  13:5   warning  'Calendar' is defined but never used   @typescript-eslint/no-unused-vars
+  16:10  warning  'cn' is defined but never used         @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/Screener/MarketTable.tsx
+   97:32  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+   98:32  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+  192:31  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  196:64  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/components/ui/ExchangeIcon.tsx
+   4:8  warning  'Image' is defined but never used                    @typescript-eslint/no-unused-vars
+  12:7  warning  'EXCHANGE_LOGOS' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useAdvancedScreener.ts
+  39:65  error  Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useAdvancedScreener.ts:39:65
+  37 |
+  38 |             // Real-ish Volatility: 24h change magnitude is a good proxy for relative volatility
+> 39 |             const vol24h = Math.abs(stats.priceChange1h * 4) + (Math.random() * 0.5); // Derived from 1h activity
+     |                                                                 ^^^^^^^^^^^^^ Cannot call impure function
+  40 |
+  41 |             // RVOL: 24h Volume compared to a "baseline" 
+  42 |             // Since we don't have historical average volume, we'll use a logarithmic scale of volume   react-hooks/purity
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useAlerts.ts
+  26:17  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useAlerts.ts:26:17
+  24 |         if (saved) {
+  25 |             try {
+> 26 |                 setAlerts(JSON.parse(saved));
+     |                 ^^^^^^^^^ Avoid calling setState() directly within an effect
+  27 |             } catch (e) {
+  28 |                 console.warn("Failed to parse alerts", e);
+  29 |             }  react-hooks/set-state-in-effect
+  58:83  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useLivePrices.ts
+  11:9  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useLivePrices.ts:11:9
+   9 |
+  10 |     useEffect(() => {
+> 11 |         setHasHydrated(true);
+     |         ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  12 |     }, []);
+  13 |
+  14 |     const pricesRef = useRef<{ [key: string]: number }>({});  react-hooks/set-state-in-effect
+  61:8  warning  React Hook useEffect has a missing dependency: 'symbols'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/exhaustive-deps
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useMarketStats.ts
+  38:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/usePortfolioData.ts
+    6:39   warning  'Transaction' is defined but never used                                                                                                                                                                     @typescript-eslint/no-unused-vars
+    6:52   warning  'SourceBreakdown' is defined but never used                                                                                                                                                                 @typescript-eslint/no-unused-vars
+    9:5    warning  'getEvmPortfolio' is defined but never used                                                                                                                                                                 @typescript-eslint/no-unused-vars
+   10:5    warning  'getSolanaPortfolio' is defined but never used                                                                                                                                                              @typescript-eslint/no-unused-vars
+   11:5    warning  'getBitcoinPortfolio' is defined but never used                                                                                                                                                             @typescript-eslint/no-unused-vars
+   12:5    warning  'getHederaPortfolio' is defined but never used                                                                                                                                                              @typescript-eslint/no-unused-vars
+   21:5    warning  'getHyperliquidUserFills' is defined but never used                                                                                                                                                         @typescript-eslint/no-unused-vars
+   24:27   warning  'fetchCexTransfers' is defined but never used                                                                                                                                                               @typescript-eslint/no-unused-vars
+   24:46   warning  'fetchCexTrades' is defined but never used                                                                                                                                                                  @typescript-eslint/no-unused-vars
+   24:82   warning  'CexTransfer' is defined but never used                                                                                                                                                                     @typescript-eslint/no-unused-vars
+   28:29   warning  'UnifiedActivity' is defined but never used                                                                                                                                                                 @typescript-eslint/no-unused-vars
+   72:50   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+   78:11   warning  'walletWsManagerRef' is assigned a value but never used                                                                                                                                                     @typescript-eslint/no-unused-vars
+   80:12   warning  'spotMeta' is assigned a value but never used                                                                                                                                                               @typescript-eslint/no-unused-vars
+   87:59   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+   88:34   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+   91:54   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+   91:68   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+   97:11   warning  The 'transactions' logical expression could make the dependencies of useEffect Hook (at line 126) change on every render. To fix this, wrap the initialization of 'transactions' in its own useMemo() Hook  react-hooks/exhaustive-deps
+   97:11   warning  The 'transactions' logical expression could make the dependencies of useMemo Hook (at line 577) change on every render. To fix this, wrap the initialization of 'transactions' in its own useMemo() Hook    react-hooks/exhaustive-deps
+   97:11   warning  The 'transactions' logical expression could make the dependencies of useMemo Hook (at line 665) change on every render. To fix this, wrap the initialization of 'transactions' in its own useMemo() Hook    react-hooks/exhaustive-deps
+   98:11   warning  The 'transfers' logical expression could make the dependencies of useMemo Hook (at line 577) change on every render. To fix this, wrap the initialization of 'transfers' in its own useMemo() Hook          react-hooks/exhaustive-deps
+  104:41   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  135:8    warning  React Hook useMemo has an unnecessary dependency: 'spotOrders'. Either exclude it or remove the dependency array                                                                                            react-hooks/exhaustive-deps
+  229:64   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  256:47   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  283:54   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  315:46   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  343:100  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  351:99   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  358:100  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  365:100  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  372:96   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  379:98   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  387:117  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  390:118  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  396:115  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  399:116  error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+  467:8    warning  React Hook useEffect has a missing dependency: 'updateOrders'. Either include it or remove the dependency array                                                                                             react-hooks/exhaustive-deps
+  515:17   error    'newHwm' is never reassigned. Use 'const' instead                                                                                                                                                           prefer-const
+  672:14   error    Unexpected any. Specify a different type                                                                                                                                                                    @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/hooks/useUserHistory.ts
+    6:10  warning  'getEvmHistory' is defined but never used     @typescript-eslint/no-unused-vars
+    6:25  warning  'getSolanaHistory' is defined but never used  @typescript-eslint/no-unused-vars
+   25:43  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   25:67  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   48:47  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   48:75  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   71:45  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   71:71  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   91:54  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+   96:54  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  121:49  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  121:76  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  126:49  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  126:76  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  131:49  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  131:76  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  139:53  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  139:80  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  151:30  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  160:27  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  170:47  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  170:55  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  171:41  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  171:49  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/cex.ts
+  17:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/funding.ts
+  24:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  25:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/hyperliquid.ts
+  173:14  warning  'error' is defined but never used         @typescript-eslint/no-unused-vars
+  198:81  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  217:79  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  257:78  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  271:31  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/prices.ts
+   5:47  warning  'specificSymbols' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  26:32  error    Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/transactions.ts
+  77:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/wallet.ts
+  247:78  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  262:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  265:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  282:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  303:66  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  320:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  354:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  371:63  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  386:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  410:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  425:65  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  431:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/websocket-enhanced.ts
+   77:25  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  184:30  warning  'e' is defined but never used                    @typescript-eslint/no-unused-vars
+  199:19  warning  'futuresRes' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  263:30  warning  'e' is defined but never used                    @typescript-eslint/no-unused-vars
+  277:21  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  283:39  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  293:44  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  297:28  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  306:52  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  312:32  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  388:37  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  391:48  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  406:52  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  420:34  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  494:62  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  508:42  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/websocket-private.ts
+    4:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  100:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  105:44  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  109:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  121:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  132:32  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  176:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  179:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/websocket-types.ts
+  21:11  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/websocket-wallet.ts
+   11:16  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   63:9   error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+   64:38  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  115:22  warning  'error' is defined but never used                                                                                    @typescript-eslint/no-unused-vars
+  205:57  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  206:23  warning  'isOutgoing' is assigned a value but never used                                                                      @typescript-eslint/no-unused-vars
+  206:59  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  217:69  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  306:21  warning  'id' is assigned a value but never used                                                                              @typescript-eslint/no-unused-vars
+
+/Users/trademarathon/.gemini/antigravity/scratch/crypto-portfolio-tracker/src/lib/api/websocket.ts
+  138:22  warning  'e' is defined but never used                     @typescript-eslint/no-unused-vars
+  152:37  warning  'isReconnect' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  227:18  warning  'e' is defined but never used                     @typescript-eslint/no-unused-vars
+  280:22  warning  'e' is defined but never used                     @typescript-eslint/no-unused-vars
+
+✖ 253 problems (177 errors, 76 warnings)
+  3 errors and 0 warnings potentially fixable with the `--fix` option.
+
