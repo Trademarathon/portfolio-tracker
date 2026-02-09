@@ -1,53 +1,68 @@
-# Crypto Portfolio Tracker
+# 🦅 Trade Nest: Advanced Crypto Portfolio Tracker
 
-A professional-grade crypto portfolio tracking application built with Next.js 14, Hyperliquid SDK, and CCXT.
+[![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-blue?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
+[![Framer Motion](https://img.shields.io/badge/Framer_Motion-11-purple?style=for-the-badge&logo=framer)](https://www.framer.com/motion/)
 
-## Features
+**Trade Nest** is a state-of-the-art, pro-trader dashboard designed for ultimate portfolio transparency and market edge. Featuring the advanced **Trade Nest UI Kit**, it combines aggressive real-time data fetching with a premium glassmorphic aesthetic.
 
-- **Real-time Portfolio Tracking**: Aggregated view of assets across EVM, Solana, and CEXs.
-- **Advanced Futures Analytics**: 
-  - Lifetime PNL & Drawdown Charts
-  - Win Rate, Profit Factor, and Volume metrics
-  - Session Analysis (Day of Week, Time of Day)
-- **Fee Analysis**: Market vs Limit fee ratio for Spot and Futures.
-- **Unified Interface**: Premium dark-mode UI with sortable tables and real-time updates.
+![Dashboard Preview](public/assets/screenshots/dashboard_preview.png)
 
-## Getting Started
+## ✨ Core Pillars
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+### 🎨 Trade Nest Aesthetic (UI Kit)
+Experience a premium, "dark-mode-first" interface built for high-performance trading:
+- **NeoCard**: Glassmorphic containers with dynamic animated "border beams" and responsive glow effects.
+- **GlassPanel**: Sophisticated backdrop blur with subtle noise texture for depth.
+- **AnimatedValue**: Smooth, physics-based count-up/down tickers for real-time price updates.
+- **PulseIndicator**: Live "active" status markers for real-time data streams.
 
-2. **Environment Setup**
-   Create a `.env` file in the root directory (if not already present) and add your API keys:
-   ```env
-   # Optional: For specialized data fetching
-   NEXT_PUBLIC_HYPERLIQUID_API_URL=https://api.hyperliquid.xyz
-   ```
+### 🔍 Standalone Zerion Integration
+Track any wallet address with full transparency, independent of global settings:
+- **Multi-Chain Support**: Aggregated view across EVM, Solana, Bitcoin, and more.
+- **DeFi & NFT Discovery**: Automatically identifies complex DeFi positions and NFT collections.
+- **Independent Fetching**: Manage ad-hoc wallets and groups locally without cluttering primary settings.
 
-3. **Run Development Server**
-   ```bash
-   npm run dev
-   ```
+![Portfolio Tracker](public/assets/screenshots/portfolio_preview.png)
 
-4. **Build for Production**
-   ```bash
-   npm run build
-   npm start
-   ```
+### 📊 Professional Analytics
+- **Futures P&L Mastery**: Lifetime drawdown, win rate, and profit factor analytics.
+- **Real-Time Market Heat**: Integrated Sentiment Widget (Fear & Greed) and Altcoin Season Index.
+- **High-Frequency Polling**: Positions and balances refresh every 2-3 seconds for maximum accuracy.
 
-## Tech Stack
+## 🛠 Tech Stack
 
-- **Framework**: Next.js 14 (App Router)
-- **Styling**: TailwindCSS + Shadcn/UI
-- **Data Fetching**: TanStack Query
-- **Charts**: Recharts
-- **Exchanges**: CCXT (Binance, Bybit), Hyperliquid SDK
+- **Core**: Next.js 14 (App Router), TypeScript.
+- **UI/UX**: Tailwind CSS, Framer Motion, Radix UI (Shadcn), Lucide Icons.
+- **Data Engine**: CCXT (Binance, Bybit), Hyperliquid SDK, Zerion API.
+- **State & Fetching**: TanStack Query (React Query), Custom React Hooks.
+- **Charts**: Recharts (with custom gradient masks).
 
-## Project Structure
+## 🚀 Getting Started
 
-- `/src/app`: App router pages and API routes
-- `/src/components`: UI components (Dashboard, Charts, Shared)
-- `/src/hooks`: Custom React hooks for data fetching
-- `/src/lib`: Utility functions and API clients
+### 1. Prerequisites
+- Node.js 18+ 
+- npm / pnpm / yarn
+
+### 2. Installation
+```bash
+git clone https://github.com/Trademarathon/portfolio-tracker.git
+cd portfolio-tracker
+npm install
+```
+
+### 3. Setup Environment
+Create a `.env` file in the root:
+```env
+NEXT_PUBLIC_HYPERLIQUID_API_URL=https://api.hyperliquid.xyz
+# Add CEX/Wallet API keys as needed
+```
+
+### 4. Launch
+```bash
+npm run dev
+```
+
+---
+
+Built for traders who demand excellence. 🚀
