@@ -196,12 +196,19 @@ export function useTrackedWallets() {
 
             let totalValue = 0;
             const pricedAssets = raw.assets.map(asset => {
-                const livePrice = livePrices[asset.symbol] || asset.price || 0;
-                const value = asset.amount * livePrice;
+                const livePrice = livePrices[asset.symbol];
+                const finalPrice = livePrice || asset.price || 0;
+
+                // If we have a live price, use it. 
+                // Otherwise, use the pre-calculated valueUsd from Zerion (essential for DeFi/NFTs)
+                const value = livePrice
+                    ? (asset.amount * livePrice)
+                    : (asset.valueUsd || asset.amount * finalPrice);
+
                 totalValue += value;
                 return {
                     ...asset,
-                    price: livePrice,
+                    price: finalPrice,
                     valueUsd: value
                 } as PortfolioAsset;
             }).sort((a, b) => b.valueUsd - a.valueUsd);

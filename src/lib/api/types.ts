@@ -77,6 +77,8 @@ export interface PortfolioAsset {
     priceChange24h?: number;
     name?: string;
     breakdown?: SourceBreakdown;
+    type?: 'Token' | 'DeFi' | 'NFT';
+    icon?: string;
 }
 
 export interface PortfolioConnection {

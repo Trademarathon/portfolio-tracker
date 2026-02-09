@@ -57,10 +57,11 @@ export function WalletAssetsList({ assets, connections, selectedAssetSymbol, onA
                             const isSelected = selectedAssetSymbol === asset.symbol;
                             const priceChange = asset.priceChange24h || 0;
                             const isPositive = priceChange >= 0;
+                            const iconUrl = asset.icon || `https://tokenize-api-cdn.mz.xyz/tokens/${asset.symbol.toLowerCase()}.png`;
 
                             return (
                                 <TableRow
-                                    key={asset.symbol}
+                                    key={asset.symbol + (asset.name || '')}
                                     className={`
                                         cursor-pointer transition-colors border-white/5
                                         ${isSelected ? 'bg-indigo-500/10 hover:bg-indigo-500/20' : 'hover:bg-zinc-800/30'}
@@ -70,11 +71,18 @@ export function WalletAssetsList({ assets, connections, selectedAssetSymbol, onA
                                     <TableCell className="font-medium text-white">
                                         <div className="flex items-center gap-3">
                                             <Avatar className="h-8 w-8 bg-zinc-800 border border-white/5">
-                                                <AvatarImage src={`https://tokenize-api-cdn.mz.xyz/tokens/${asset.symbol.toLowerCase()}.png`} />
+                                                <AvatarImage src={iconUrl} />
                                                 <AvatarFallback className="text-[10px]">{asset.symbol.substring(0, 2)}</AvatarFallback>
                                             </Avatar>
                                             <div className="flex flex-col">
-                                                <span>{asset.name || asset.symbol}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="truncate max-w-[120px]">{asset.name || asset.symbol}</span>
+                                                    {asset.type && asset.type !== 'Token' && (
+                                                        <Badge variant="outline" className="text-[9px] h-3.5 px-1 py-0 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                                                            {asset.type}
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                                 <span className="text-xs text-zinc-500">{asset.symbol}</span>
                                             </div>
                                         </div>
