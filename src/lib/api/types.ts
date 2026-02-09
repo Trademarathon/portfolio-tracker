@@ -46,6 +46,21 @@ export interface Transaction {
     // Fee Breakdown
     feeType?: 'trading' | 'network' | 'funding';
     takerOrMaker?: 'maker' | 'taker';
+    fee?: number;
+    feeCurrency?: string;
+}
+
+export interface Transfer {
+    id: string;
+    type: 'Deposit' | 'Withdraw';
+    asset: string;
+    amount: number;
+    status: string;
+    timestamp: number;
+    txHash?: string;
+    connectionId: string;
+    feeType?: string;
+    symbol?: string; // Optional alias for asset to unify access
 }
 
 export interface SourceBreakdown {
@@ -66,7 +81,7 @@ export interface PortfolioAsset {
 
 export interface PortfolioConnection {
     id: string;
-    type: 'binance' | 'bybit' | 'hyperliquid' | 'wallet' | 'evm' | 'solana';
+    type: 'binance' | 'bybit' | 'hyperliquid' | 'wallet' | 'evm' | 'solana' | 'zerion';
     name: string; // User defined, e.g. "Main Account"
     chain?: string; // For wallets (ETH, SOL, etc.)
     apiKey?: string;

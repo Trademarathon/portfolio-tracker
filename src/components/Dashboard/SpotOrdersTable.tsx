@@ -24,9 +24,13 @@ interface SpotOrder {
 
 interface SpotOrdersTableProps {
     orders: SpotOrder[];
+    prices: Record<string, number>;
 }
 
-export function SpotOrdersTable({ orders }: SpotOrdersTableProps) {
+import { getTokenName } from "@/lib/token-metadata";
+import { cn } from "@/lib/utils";
+
+export function SpotOrdersTable({ orders, prices }: SpotOrdersTableProps) {
     const sortedOrders = useMemo(() => {
         return [...orders].sort((a, b) => b.timestamp - a.timestamp);
     }, [orders]);
@@ -44,13 +48,19 @@ export function SpotOrdersTable({ orders }: SpotOrdersTableProps) {
         const order = sortedOrders[index];
         const isBuy = order.side === 'buy';
 
+        const currentPrice = prices[order.symbol] || 0;
+        let distance = 0;
+        if (currentPrice > 0) {
+            distance = ((currentPrice - order.price) / currentPrice) * 100;
+        }
+
         return (
             <div style={style} className="px-4">
                 <div className="flex items-center justify-between py-3 border-b border-zinc-800/50 hover:bg-zinc-800/20 transition-colors group">
                     <div className="flex items-center gap-3 w-1/4">
                         <ExchangeIcon exchange={order.connectionName} size={20} />
                         <div>
-                            <div className="font-bold text-zinc-100">{order.assetName || order.symbol}</div>
+                            <div className="font-bold text-zinc-100">{order.assetName && order.assetName !== order.symbol ? order.assetName : getTokenName(order.symbol)}</div>
                             <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{order.symbol}</div>
                         </div>
                     </div>
@@ -63,8 +73,12 @@ export function SpotOrdersTable({ orders }: SpotOrdersTableProps) {
                     </div>
 
                     <div className="flex flex-col items-end w-1/6">
-                        <div className="text-zinc-100 font-medium">${order.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</div>
-                        <div className="text-[10px] text-zinc-500">Price</div>
+                        <div className="text-zinc-100 font-bold">${order.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</div>
+                        {currentPrice > 0 && (
+                            <div className={cn("text-[10px] font-medium", distance > 0 ? "text-emerald-500" : "text-rose-500")}>
+                                {Math.abs(distance).toFixed(2)}% away
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex flex-col items-end w-1/6">
@@ -93,7 +107,7 @@ export function SpotOrdersTable({ orders }: SpotOrdersTableProps) {
             <div className="flex items-center justify-between px-8 py-3 bg-zinc-800/30 border-b border-zinc-800 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
                 <div className="w-1/4 text-left">Asset / Source</div>
                 <div className="w-1/6 text-center">Side / Type</div>
-                <div className="w-1/6 text-right">Price</div>
+                <div className="w-1/6 text-right">Price / Dist</div>
                 <div className="w-1/6 text-right">Amount</div>
                 <div className="w-1/6 text-right">Progress</div>
             </div>

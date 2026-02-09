@@ -6,7 +6,7 @@ export interface WebSocketConnectionInfo {
     id: string;
     connectionId: string; // Original connection ID from Settings
     name: string;
-    type: 'binance' | 'bybit' | 'hyperliquid' | 'wallet' | 'evm' | 'solana';
+    type: 'binance' | 'bybit' | 'hyperliquid' | 'wallet' | 'evm' | 'solana' | 'zerion';
     status: WebSocketStatus;
     lastUpdate: Date;
     latency?: number;

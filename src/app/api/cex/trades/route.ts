@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
         // 1. Fetch Balances first to know what to query
         const balance = await client.fetchBalance();
-        const activeAssets = Object.keys(balance.total).filter(asset => balance.total[asset] > 0);
+        const activeAssets = Object.keys(balance.total).filter(asset => (balance.total as any)[asset] > 0);
 
         // 2. Default Pairs for common assets
         const commonPairs = [
@@ -56,16 +56,17 @@ export async function POST(req: Request) {
         });
 
         // 4. Fetch Trades for these pairs
-        // We limit to top 20 pairs to avoid rate limits
-        const pairsToQuery = Array.from(targetPairs).slice(0, 20);
+        // AGGRESSIVE MODE: Query up to 50 pairs with larger batches
+        const pairsToQuery = Array.from(targetPairs).slice(0, 50);
 
-        const trades = [];
-        const batchSize = 5;
+        const trades: any[] = [];
+        const batchSize = 10;
         for (let i = 0; i < pairsToQuery.length; i += batchSize) {
             const batch = pairsToQuery.slice(i, i + batchSize);
             await Promise.all(batch.map(async (pair) => {
                 try {
-                    const res = await client.fetchMyTrades(pair, undefined, 20);
+                    // Fetch up to 100 trades per pair (was 20)
+                    const res = await client.fetchMyTrades(pair, undefined, 100);
                     if (res && res.length > 0) trades.push(...res);
                 } catch (ignore) { }
             }));

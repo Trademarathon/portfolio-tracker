@@ -8,9 +8,13 @@ import { motion } from "framer-motion";
 import { TokenIcon } from "@/components/ui/TokenIcon";
 import { CryptoIcon } from "@/components/ui/CryptoIcon";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
+import { PortfolioAllocation } from "@/components/Dashboard/PortfolioAllocation";
+
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 export default function BalancesPage() {
-    const { assets, loading, connections } = usePortfolioData();
+    const { assets, loading, connections, hideDust, setHideDust } = usePortfolioData();
 
     // Aggregate balances by Source (Account ID or Name)
     const accountBalances: { [key: string]: { name: string, total: number, assets: { symbol: string, balance: number, value: number }[] } } = {};
@@ -48,94 +52,120 @@ export default function BalancesPage() {
     }
 
     return (
-        <div className="p-8 max-w-7xl mx-auto space-y-8 pb-32">
+        <div className="p-8 max-w-7xl mx-auto space-y-10 pb-32">
             <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold font-serif text-white">Account Balances</h1>
-                <p className="text-muted-foreground"><span className="italic font-serif text-zinc-400">Detailed breakdown</span> of your assets across all connected accounts.</p>
+                <h1 className="text-4xl font-serif font-bold tracking-tight text-white mb-1">Account Balances</h1>
+                <p className="text-lg text-muted-foreground font-serif italic opacity-70">
+                    A multi-dimensional view of your net worth across exchanges and chains.
+                </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {sortedAccounts.map(([uniqueKey, data], index) => {
-                    const [sourceId, subType] = uniqueKey.split('::');
-                    const connection = connections.find(c => c.id === sourceId);
-                    const type = connection?.type || "wallet";
-                    const chain = connection?.chain;
+            <PortfolioAllocation assets={assets} />
 
-                    return (
-                        <motion.div
-                            key={uniqueKey}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                        >
-                            <div className="relative h-full rounded-xl">
-                                <GlowingEffect
-                                    spread={40}
-                                    glow={true}
-                                    disabled={false}
-                                    proximity={64}
-                                    inactiveZone={0.01}
-                                />
-                                <Card className="relative h-full bg-card/30 backdrop-blur-md border-white/5 hover:border-primary/20 transition-all group overflow-hidden">
-                                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                        <Layers className="h-24 w-24 text-primary transform rotate-12" />
-                                    </div>
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold font-serif px-1 flex items-center gap-2">
+                        <Layers className="h-5 w-5 text-trade-purple" />
+                        Connected Accounts
+                    </h2>
+                    <div className="flex items-center gap-6">
+                        <div className="flex items-center space-x-2 bg-white/5 px-3 py-1.5 rounded-full border border-white/5">
+                            <Switch
+                                id="hide-dust"
+                                checked={hideDust}
+                                onCheckedChange={setHideDust}
+                            />
+                            <Label htmlFor="hide-dust" className="text-xs font-bold uppercase cursor-pointer">Hide Dust</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono font-bold uppercase tracking-widest bg-white/5 px-3 py-1.5 rounded-full">
+                            {sortedAccounts.length} Sources Found
+                        </p>
+                    </div>
+                </div>
 
-                                    <CardHeader className="pb-2">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <CryptoIcon type={type} id={chain || type} size={40} className="shadow-lg" />
-                                                <div className="overflow-hidden">
-                                                    <CardTitle className="text-lg font-bold truncate max-w-[180px]" title={data.name}>{data.name}</CardTitle>
-                                                    <p className="text-xs text-muted-foreground uppercase flex items-center gap-2">
-                                                        {type === 'binance' || type === 'bybit' || type === 'hyperliquid' ? "Exchange" : "On-Chain"}
-                                                        {subType && <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded text-[9px] font-bold">{subType}</span>}
-                                                    </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {sortedAccounts.map(([uniqueKey, data], index) => {
+                        const [sourceId, subType] = uniqueKey.split('::');
+                        const connection = connections.find(c => c.id === sourceId);
+                        const type = connection?.type || "wallet";
+                        const chain = connection?.chain;
+
+                        return (
+                            <motion.div
+                                key={uniqueKey}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                            >
+                                <div className="relative h-full rounded-xl">
+                                    <GlowingEffect
+                                        spread={40}
+                                        glow={true}
+                                        disabled={false}
+                                        proximity={64}
+                                        inactiveZone={0.01}
+                                    />
+                                    <Card className="relative h-full bg-card/30 backdrop-blur-md border-white/5 hover:border-primary/20 transition-all group overflow-hidden">
+                                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                                            <Layers className="h-24 w-24 text-primary transform rotate-12" />
+                                        </div>
+
+                                        <CardHeader className="pb-2">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <CryptoIcon type={type} id={chain || type} size={40} className="shadow-lg" />
+                                                    <div className="overflow-hidden">
+                                                        <CardTitle className="text-lg font-bold truncate max-w-[180px]" title={data.name}>{data.name}</CardTitle>
+                                                        <p className="text-xs text-muted-foreground uppercase flex items-center gap-2">
+                                                            {type === 'binance' || type === 'bybit' || type === 'hyperliquid' ? "Exchange" : "On-Chain"}
+                                                            {subType && <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded text-[9px] font-bold">{subType}</span>}
+                                                        </p>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="mb-6">
-                                            <p className="text-sm text-muted-foreground">Total Value</p>
-                                            <p className="text-3xl font-bold text-white font-mono tracking-tighter">
-                                                {formatCurrency(data.total)}
-                                            </p>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Top Assets</p>
-                                            {data.assets.sort((a, b) => b.value - a.value).slice(0, 4).map(asset => (
-                                                <div key={asset.symbol} className="flex items-center justify-between p-2 rounded bg-white/5 hover:bg-white/10 transition-colors z-10 relative">
-                                                    <div className="flex items-center gap-2">
-                                                        <TokenIcon symbol={asset.symbol} size={24} />
-                                                        <span className="font-bold text-sm">{asset.symbol}</span>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <p className="text-sm font-medium text-white">{formatCurrency(asset.value)}</p>
-                                                        <p className="text-[10px] text-muted-foreground">{asset.balance.toFixed(4)} {asset.symbol}</p>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {data.assets.length > 4 && (
-                                                <p className="text-xs text-center text-muted-foreground pt-2">
-                                                    + {data.assets.length - 4} more assets
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="mb-6">
+                                                <p className="text-sm text-muted-foreground">Total Value</p>
+                                                <p className="text-3xl font-bold text-white font-mono tracking-tighter">
+                                                    {formatCurrency(data.total)}
                                                 </p>
-                                            )}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </div>
-                        </motion.div>
-                    );
-                })}
+                                            </div>
 
-                {sortedAccounts.length === 0 && (
-                    <div className="col-span-full py-12 text-center border-2 border-dashed border-white/10 rounded-xl">
-                        <p className="text-muted-foreground mb-4">No accounts connected yet.</p>
-                        <a href="/settings" className="bg-primary px-4 py-2 rounded text-white font-bold hover:bg-primary/90">Connect Account</a>
-                    </div>
-                )}
+                                            <div className="space-y-3">
+                                                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Top Assets</p>
+                                                {data.assets.sort((a, b) => b.value - a.value).slice(0, 4).map(asset => (
+                                                    <div key={asset.symbol} className="flex items-center justify-between p-2 rounded bg-white/5 hover:bg-white/10 transition-colors z-10 relative">
+                                                        <div className="flex items-center gap-2">
+                                                            <TokenIcon symbol={asset.symbol} size={24} />
+                                                            <span className="font-bold text-sm">{asset.symbol}</span>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-sm font-medium text-white">{formatCurrency(asset.value)}</p>
+                                                            <p className="text-[10px] text-muted-foreground">{asset.balance.toFixed(4)} {asset.symbol}</p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {data.assets.length > 4 && (
+                                                    <p className="text-xs text-center text-muted-foreground pt-2">
+                                                        + {data.assets.length - 4} more assets
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
+
+                    {sortedAccounts.length === 0 && (
+                        <div className="col-span-full py-12 text-center border-2 border-dashed border-white/10 rounded-xl">
+                            <p className="text-muted-foreground mb-4">No accounts connected yet.</p>
+                            <a href="/settings" className="bg-primary px-4 py-2 rounded text-white font-bold hover:bg-primary/90">Connect Account</a>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

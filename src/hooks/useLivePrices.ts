@@ -1,13 +1,30 @@
 import { useRealtimeMarket } from './useRealtimeMarket';
+import { normalizeSymbol } from '@/lib/utils/normalization';
 
 export function useLivePrices(symbols: string[]) {
-    const { prices, stats } = useRealtimeMarket(symbols);
+    // Pass empty array to get all prices, or optimize by passing normalized symbols if useRealtimeMarket supports filtering
+    // useRealtimeMarket currently subscribes to ALL if undefined/empty, or filters outputs.
+    // We want ALL prices so we can map WETH -> ETH
+    const { prices, stats } = useRealtimeMarket();
 
-    // Map stats to old priceChanges format
+    // Map prices to requested symbols
+    const mappedPrices: Record<string, number> = {};
     const priceChanges: Record<string, number> = {};
-    Object.keys(stats).forEach(sym => {
-        priceChanges[sym] = stats[sym].change24h;
-    });
 
-    return { prices, priceChanges };
+    if (symbols && symbols.length > 0) {
+        symbols.forEach(sym => {
+            const norm = normalizeSymbol(sym);
+            // Try normalized first, then direct
+            const price = prices[norm] || prices[sym];
+            const stat = stats[norm] || stats[sym];
+
+            if (price) mappedPrices[sym] = price;
+            if (stat) priceChanges[sym] = stat.change24h;
+        });
+    } else {
+        // If no symbols provided, return all (raw)
+        return { prices, priceChanges: {} };
+    }
+
+    return { prices: mappedPrices, priceChanges };
 }

@@ -19,7 +19,11 @@ export function TradingStats({ transactions }: TradingStatsProps) {
                 profitFactor: 0,
                 avgWin: 0,
                 avgLoss: 0,
-                bestPair: '-'
+                bestPair: '-',
+                makerFees: 0,
+                takerFees: 0,
+                networkFees: 0,
+                fundingPnL: 0
             };
         }
 
@@ -92,14 +96,49 @@ export function TradingStats({ transactions }: TradingStatsProps) {
                 </div>
             </div>
 
+            {/* Trading Fees Section */}
             <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Fees & Costs</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    <StatCard label="Trading Fees (Total)" value={stats.makerFees + stats.takerFees} isCurrency className="text-orange-400" />
-                    <StatCard label="Maker Fees" value={stats.makerFees} isCurrency className="text-zinc-400" />
-                    <StatCard label="Taker Fees" value={stats.takerFees} isCurrency className="text-zinc-400" />
+                <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Trading Fees</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <StatCard label="Maker Fees" value={stats.makerFees} isCurrency className="text-emerald-400" />
+                    <StatCard label="Taker Fees" value={stats.takerFees} isCurrency className="text-orange-400" />
+                    <StatCard label="Total Trading Fees" value={(stats.makerFees || 0) + (stats.takerFees || 0)} isCurrency className="text-red-400" />
+                </div>
+            </div>
+
+            {/* Network/Transaction Fees Section */}
+            <div>
+                <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Network & Transaction Fees</h3>
+                <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+                    <StatCard label="Gas/Network Fees" value={stats.networkFees} isCurrency className="text-blue-400" />
                     <StatCard label="Funding PnL" value={stats.fundingPnL} isCurrency color={stats.fundingPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
-                    <StatCard label="Network/Gas Fees" value={stats.networkFees} isCurrency className="text-blue-400" />
+                </div>
+            </div>
+
+            {/* Total Fees Overview Section */}
+            <div>
+                <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Total Fees Overview</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <StatCard
+                        label="Total Fees Paid"
+                        value={stats.makerFees + stats.takerFees + stats.networkFees}
+                        isCurrency
+                        className="text-red-500 text-2xl font-extrabold"
+                    />
+                    <StatCard
+                        label="Net After Fees"
+                        value={stats.netPnl - (stats.makerFees + stats.takerFees + stats.networkFees)}
+                        isCurrency
+                        color={(stats.netPnl - (stats.makerFees + stats.takerFees + stats.networkFees)) >= 0 ? 'text-green-400' : 'text-red-400'}
+                        className="text-2xl font-extrabold"
+                    />
+                    <StatCard
+                        label="Fee Impact on PnL"
+                        value={stats.netPnl !== 0 ? ((stats.makerFees + stats.takerFees + stats.networkFees) / Math.abs(stats.netPnl) * 100) : 0}
+                        suffix="%"
+                        decimals={1}
+                        className="text-yellow-400"
+                    />
                 </div>
             </div>
         </div>

@@ -1,62 +1,23 @@
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
-import dynamic from 'next/dynamic';
 import { usePortfolioData } from "@/hooks/usePortfolioData";
-import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { useRealtimeMarket } from "@/hooks/useRealtimeMarket";
-import { formatCurrency, cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { Position } from '@/lib/api/types';
 
+// Components
 import { ConnectionStatus } from "@/components/Dashboard/ConnectionStatus";
-
-// Lazy load heavy components
-const OverviewCard = dynamic(() => import("@/components/Dashboard/OverviewCard"), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[200px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const HoldingsTable = dynamic(() => import("@/components/Dashboard/HoldingsTable"), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[300px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const AdvancedAllocation = dynamic(() => import("@/components/Dashboard/AdvancedAllocation").then(mod => mod.AdvancedAllocation), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[400px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const RecentActivity = dynamic(() => import("@/components/Dashboard/RecentActivity").then(mod => mod.RecentActivity), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[500px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const MarketTable = dynamic(() => import("@/components/Screener/MarketTable").then(mod => mod.MarketTable), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[300px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const StablecoinWidget = dynamic(() => import("@/components/Dashboard/StablecoinWidget").then(mod => mod.StablecoinWidget), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[150px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const DrawdownMeter = dynamic(() => import("@/components/Dashboard/DrawdownMeter").then(mod => mod.DrawdownMeter), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[100px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const FundingRateWidget = dynamic(() => import("@/components/Dashboard/FundingRateWidget").then(mod => mod.FundingRateWidget), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[120px] bg-zinc-900 rounded-xl border border-white/5" />
-});
-const FeeRatioWidget = dynamic(() => import("@/components/Dashboard/FeeRatioWidget"), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-[120px] bg-zinc-900 rounded-xl border border-white/5" />
-});
+import { PriceTickerCard } from "@/components/Dashboard/TradeNest/PriceTickerCard";
+import { SentimentWidget } from "@/components/Dashboard/TradeNest/SentimentWidget";
+import { FuturesPositionsWidget } from "@/components/Dashboard/TradeNest/FuturesPositionsWidget";
+import { MarketsList } from "@/components/Wallet/MarketsList";
+import { RecentActivity } from "@/components/Dashboard/RecentActivity";
+import { Zap, LayoutGrid } from 'lucide-react';
 
 const container = {
   hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1
-    }
-  }
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } }
 };
 
 const item = {
@@ -64,165 +25,144 @@ const item = {
   show: { opacity: 1, y: 0 }
 };
 
-import { LayoutGrid, Zap } from "lucide-react";
-import { NeoGlassCard } from "@/components/ui/NeoGlassCard";
-import { ROIWaveChart } from "@/components/Dashboard/ROIWaveChart";
-import { PortfolioRadar } from "@/components/Dashboard/PortfolioRadar";
+// Mock Sparkline Generator
+const generateSparkline = (startPrice: number, change: number) => {
+  const points = 20;
+  const volatility = 0.02; // 2%
+  const data = [];
+  let current = startPrice * (1 - change / 100); // Approximate start
 
-export default function Home() {
-  const router = useRouter();
-  const { assets, activities, positions, loading, totalValue, totalPnlUsd, totalPnlPercent, drawdowns, wsConnectionStatus, feeStats, isDemo } = usePortfolioData();
+  // Trend
+  const step = (startPrice - current) / points;
+
+  for (let i = 0; i < points; i++) {
+    // Add minimal random noise + trend
+    const noise = (Math.random() - 0.5) * volatility * startPrice;
+    current += step + noise;
+    data.push({ value: current });
+  }
+  // Ensure last point is current price
+  data.push({ value: startPrice });
+  return data;
+};
+
+export default function DashboardPage() {
+  const {
+    assets,
+    activities,
+    positions,
+    loading,
+    totalValue,
+    wsConnectionStatus,
+    prices
+  } = usePortfolioData();
+
   const [hasHydrated, setHasHydrated] = useState(false);
 
-  // Real-time Market Data for Dashboard Stats
-  // We fetch a broad set of symbols to populate the dashboard stats even if not holding them
-  const defaultTrackedSymbols = useMemo(() => ['BTC', 'ETH', 'SOL', 'AVAX', 'ARB', 'TIA', 'HYPE', 'JUP', 'WIF', 'PEPE', 'SUI', 'APT', 'DOGE', 'NEAR'], []);
-  const allTrackedSymbols = useMemo(() => {
-    const assetSymbols = assets.map(a => a.symbol);
-    return Array.from(new Set([...assetSymbols, ...defaultTrackedSymbols]));
-  }, [assets, defaultTrackedSymbols]);
+  // Cast positions
+  const typedPositions = positions as Position[];
 
-  const { stats: marketStats } = useRealtimeMarket(allTrackedSymbols);
+  // Prices
+  const btcPrice = prices['BTC'] || 96000; // Fallback
+  const ethPrice = prices['ETH'] || 2600;
+  const solPrice = prices['SOL'] || 190; // Example
 
-  // Aggregate Dashboard Metrics
-  const dashboardMetrics = useMemo(() => {
-    let totalVol = 0;
-    let totalOi = 0;
-    const items = Object.values(marketStats);
+  // Changes (Mocked if not real, or calculate from history if available)
+  // useRealtimeMarket provides stats. But let's assume simple mocks for visual demo if stats missing.
+  // Actually useRealtimeMarket is better.
+  const { stats } = useRealtimeMarket(['BTC', 'ETH', 'SOL']);
 
-    items.forEach(stat => {
-      totalVol += stat.volume24h || 0;
-      totalOi += stat.openInterest || 0;
-    });
+  const btcChange = stats['BTC']?.change24h || 1.2;
+  const ethChange = stats['ETH']?.change24h || -0.5;
+  const solChange = stats['SOL']?.change24h || 5.4;
 
-    // Sort for top performers
-    const sorted = [...items].sort((a, b) => (b.change24h || 0) - (a.change24h || 0));
-    const topPerformers = sorted.slice(0, 3);
+  const btcChart = useMemo(() => generateSparkline(btcPrice, btcChange), [btcPrice, btcChange]);
+  const ethChart = useMemo(() => generateSparkline(ethPrice, ethChange), [ethPrice, ethChange]);
+  const solChart = useMemo(() => generateSparkline(solPrice, solChange), [solPrice, solChange]);
 
-    return {
-      totalVol,
-      totalOi,
-      topPerformers
-    };
-  }, [marketStats]);
+  useEffect(() => { setHasHydrated(true); }, []);
 
-  useEffect(() => {
-    setHasHydrated(true);
-  }, []);
-
-  if (!hasHydrated) {
-    return (
-      <div className="flex flex-col gap-4 animate-in fade-in duration-500">
-        <div className="flex justify-between items-center">
-          <div className="h-10 w-48 bg-zinc-900 rounded-xl animate-pulse" />
-          <div className="h-10 w-32 bg-zinc-900 rounded-xl animate-pulse" />
-        </div>
-        <div className="grid gap-4 lg:grid-cols-12">
-          <div className="lg:col-span-8 h-[200px] bg-zinc-900 rounded-xl animate-pulse" />
-          <div className="lg:col-span-4 h-[200px] bg-zinc-900 rounded-xl animate-pulse" />
-        </div>
-        <div className="h-[400px] bg-zinc-900 rounded-xl animate-pulse" />
-      </div>
-    );
-  }
+  if (!hasHydrated) return null;
 
   return (
     <motion.main
-      className="flex flex-col gap-4 pb-8"
+      className="flex flex-col gap-6 pb-6 min-h-screen p-4 md:p-6 max-w-[1600px] mx-auto"
       variants={container}
       initial="hidden"
       animate="show"
     >
       {/* Header */}
-      <motion.div variants={item} className="flex flex-row items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-serif font-bold tracking-tight text-white mb-1">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Real-time <span className="italic font-serif text-zinc-400">overview</span> of your crypto portfolio.</p>
+      <motion.div variants={item} className="flex items-center justify-between mb-2">
+        <div>
+          <h1 className="text-2xl font-bold text-white font-urbanist flex items-center gap-2">
+            <LayoutGrid className="w-6 h-6 text-indigo-500" />
+            Trade Nest
+          </h1>
+          <p className="text-sm text-zinc-500">Welcome back, Traveler.</p>
         </div>
-        <ConnectionStatus status={wsConnectionStatus || new Map()} />
-      </motion.div>
-
-      {/* Bento Grid Layout */}
-      <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-12 gap-6 h-full">
-
-        {/* Main Chart Section (ROI Wave) */}
-        <div className="col-span-1 md:col-span-8 flex flex-col gap-6">
-          <NeoGlassCard className="p-6 h-[400px] flex flex-col relative group">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-widest font-serif">Portfolio ROI</h2>
-                <div className="flex items-baseline gap-2 mt-1">
-                  <span className="text-4xl font-black text-white tracking-tight">
-                    {totalPnlPercent >= 0 ? '+' : ''}{totalPnlPercent.toFixed(2)}%
-                  </span>
-                  <span className={cn(
-                    "text-xs font-bold px-2 py-1 rounded-full",
-                    totalPnlUsd >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"
-                  )}>
-                    {totalPnlUsd >= 0 ? '+' : ''}{formatCurrency(totalPnlUsd)} today
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex-1 w-full">
-              <ROIWaveChart />
-            </div>
-          </NeoGlassCard>
-
-          {/* Quick Stats Row */}
-          <div className="grid grid-cols-2 gap-6">
-            <NeoGlassCard className="p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="h-2 w-2 rounded-full bg-neon-cyan neon-glow-cyan" />
-                <span className="text-xs font-bold text-zinc-500 uppercase">Tracked Volume (24h)</span>
-              </div>
-              <span className="text-2xl font-bold text-white">
-                {formatCurrency(dashboardMetrics.totalVol)}
-              </span>
-            </NeoGlassCard>
-            <NeoGlassCard className="p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="h-2 w-2 rounded-full bg-neon-purple neon-glow-purple" />
-                <span className="text-xs font-bold text-zinc-500 uppercase">Tracked OI</span>
-              </div>
-              <span className="text-2xl font-bold text-white">
-                {formatCurrency(dashboardMetrics.totalOi)}
-              </span>
-            </NeoGlassCard>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider">System Online</span>
           </div>
-        </div>
-
-        {/* Right Column: Radar & Holdings */}
-        <div className="col-span-1 md:col-span-4 flex flex-col gap-6">
-          <NeoGlassCard className="p-6 flex flex-col h-[350px]">
-            <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-widest font-serif mb-4">Sector Exposure</h2>
-            <PortfolioRadar />
-          </NeoGlassCard>
-
-          <NeoGlassCard className="p-6 flex-1 min-h-[250px]">
-            <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-widest font-serif mb-4">Top Performers</h2>
-            <div className="space-y-4">
-              {dashboardMetrics.topPerformers.length > 0 ? (
-                dashboardMetrics.topPerformers.map((token, i) => (
-                  <div key={token.symbol} className="flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer border border-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-[10px] font-bold">
-                        {token.symbol[0]}
-                      </div>
-                      <span className="font-bold">{token.symbol}</span>
-                    </div>
-                    <span className={cn("font-mono font-bold", (token.change24h || 0) >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                      {(token.change24h || 0) > 0 ? '+' : ''}{(token.change24h || 0).toFixed(2)}%
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center text-zinc-500 py-8 text-sm">Loading market data...</div>
-              )}
-            </div>
-          </NeoGlassCard>
+          <ConnectionStatus status={wsConnectionStatus || new Map()} />
         </div>
       </motion.div>
-    </motion.main >
+
+      {/* Row 1: Price Tickers & Sentiment */}
+      <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 h-40">
+        <PriceTickerCard
+          symbol="BTC"
+          name="Bitcoin"
+          price={btcPrice}
+          change24h={btcChange}
+          chartData={btcChart}
+          color="orange"
+          link="https://app.hyperliquid.xyz/trade/BTC"
+        />
+        <PriceTickerCard
+          symbol="ETH"
+          name="Ethereum"
+          price={ethPrice}
+          change24h={ethChange}
+          chartData={ethChart}
+          color="indigo"
+          link="https://app.hyperliquid.xyz/trade/ETH"
+        />
+        <PriceTickerCard
+          symbol="SOL"
+          name="Solana"
+          price={solPrice}
+          change24h={solChange}
+          chartData={solChart}
+          color="purple"
+          link="https://app.hyperliquid.xyz/trade/SOL"
+        />
+        <SentimentWidget />
+      </motion.div>
+
+      {/* Row 2: Futures & Activity */}
+      <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[400px]">
+        {/* Futures (2/3 width) */}
+        <div className="lg:col-span-2 h-full">
+          <FuturesPositionsWidget positions={typedPositions} />
+        </div>
+        {/* Activity (1/3 width) */}
+        <div className="lg:col-span-1 h-full">
+          <RecentActivity positions={typedPositions} activities={activities} />
+        </div>
+      </motion.div>
+
+      {/* Row 3: Market Overview */}
+      <motion.div variants={item} className="grid grid-cols-1 gap-4">
+        <div className="h-[400px]">
+          <MarketsList />
+        </div>
+      </motion.div>
+
+    </motion.main>
   );
 }

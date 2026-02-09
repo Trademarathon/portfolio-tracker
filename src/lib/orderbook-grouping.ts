@@ -1,7 +1,10 @@
 
 import { getHyperliquidL2Book, L2Book, L2BookParams } from './api/hyperliquid';
 
-export { L2BookParams };
+export type { L2BookParams };
+
+// Internal type for optional grouping params (coin is added by caller)
+type L2BookGroupingParams = Omit<L2BookParams, 'coin'>;
 
 export interface GroupedLevel {
     px: string;
@@ -51,7 +54,7 @@ export function calculateOrderbookStepSizes(price: number, szDecimals: number): 
  * Maps a desired step size to Hyperliquid's l2Book API parameters.
  * Returns null if the step size requires client-side grouping.
  */
-export function stepToL2BookParams(stepSize: number, allSteps: number[], price: number): L2BookParams | null {
+export function stepToL2BookParams(stepSize: number, allSteps: number[], price: number): L2BookGroupingParams | null {
     // The smallest step is always the default (no params needed)
     if (allSteps.length > 0 && stepSize === allSteps[0]) {
         return {}; // Empty params = default

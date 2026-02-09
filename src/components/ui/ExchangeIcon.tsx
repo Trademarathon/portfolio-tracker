@@ -10,9 +10,9 @@ interface ExchangeIconProps {
 }
 
 const EXCHANGE_LOGOS: Record<string, string> = {
-    binance: "https://cryptologos.cc/logos/binance-coin-bnb-logo.svg",
-    bybit: "https://cryptologos.cc/logos/bybit-logo.svg",
-    hyperliquid: "https://app.hyperliquid.xyz/favicon.ico", // Best available for now
+    binance: "/binance.svg",
+    bybit: "/bybit.svg",
+    hyperliquid: "/hyperliquid.png",
     ethereum: "https://cryptologos.cc/logos/ethereum-eth-logo.svg",
     bitcoin: "https://cryptologos.cc/logos/bitcoin-btc-logo.svg",
     solana: "https://cryptologos.cc/logos/solana-sol-logo.svg",
@@ -66,7 +66,8 @@ const NORMALIZE_MAP: Record<string, string> = {
 };
 
 export function ExchangeIcon({ exchange, className, size = 24 }: ExchangeIconProps) {
-    const key = NORMALIZE_MAP[exchange] || exchange.toLowerCase();
+    const safeExchange = exchange || "unknown";
+    const key = NORMALIZE_MAP[safeExchange] || safeExchange.toLowerCase();
     const logoUrl = EXCHANGE_LOGOS[key];
 
     // Fallback Colors if no logo is found
@@ -84,32 +85,37 @@ export function ExchangeIcon({ exchange, className, size = 24 }: ExchangeIconPro
     if (logoUrl) {
         return (
             <div
-                className={cn("relative rounded-full overflow-hidden flex-shrink-0 bg-white/5", className)}
-                style={{ width: size, height: size }}
+                className={cn(
+                    "relative rounded-full overflow-hidden shrink-0 bg-card/40 backdrop-blur-md border border-white/10 flex items-center justify-center group",
+                    className
+                )}
+                style={{ width: size + 6, height: size + 6 }}
                 title={exchange}
             >
-                <Image
-                    src={logoUrl}
-                    alt={exchange}
-                    fill
-                    className="object-cover p-0.5" // Slight padding to prevent edge cutting for round icons
-                    unoptimized // Allow external URLs
-                />
+                <div className="relative" style={{ width: size, height: size }}>
+                    <Image
+                        src={logoUrl}
+                        alt={exchange}
+                        fill
+                        className="object-contain p-0.5 transition-transform duration-300 group-hover:scale-110"
+                        unoptimized
+                    />
+                </div>
             </div>
         );
     }
 
     const colorClass = COLORS[key] || "bg-zinc-800 text-zinc-400";
-    const letter = exchange.slice(0, 1).toUpperCase();
+    const letter = safeExchange.slice(0, 1).toUpperCase();
 
     return (
         <div
             className={cn(
-                "rounded-full flex items-center justify-center font-bold shadow-sm flex-shrink-0",
+                "rounded-full flex items-center justify-center font-bold shadow-sm shrink-0 border border-white/10",
                 colorClass,
                 className
             )}
-            style={{ width: size, height: size, fontSize: size * 0.5 }}
+            style={{ width: size + 6, height: size + 6, fontSize: size * 0.5 }}
             title={exchange}
         >
             {letter}

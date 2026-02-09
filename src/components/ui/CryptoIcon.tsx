@@ -24,7 +24,7 @@ export function CryptoIcon({ type, id, className, size = 28 }: CryptoIconProps) 
         okx: "https://cryptologos.cc/logos/okb-okb-logo.svg",
         gate: "https://cryptologos.cc/logos/gate-token-gt-logo.svg",
         bitget: "https://cryptologos.cc/logos/bitget-token-bgb-logo.svg",
-        hyperliquid: "https://app.hyperliquid.xyz/favicon.ico",
+        hyperliquid: "/hyperliquid.png",
         mexc: "https://cryptologos.cc/logos/mexc-mx-logo.svg",
         huobi: "https://cryptologos.cc/logos/huobi-token-ht-logo.svg",
         bitfinex: "https://cryptologos.cc/logos/tether-usdt-logo.svg", // Placeholder/Close enough
@@ -100,17 +100,27 @@ export function CryptoIcon({ type, id, className, size = 28 }: CryptoIconProps) 
 
     return (
         <div
-            className={cn("rounded-full bg-white/5 flex items-center justify-center overflow-hidden border border-white/10 p-1", className)}
+            className={cn(
+                "relative rounded-full flex items-center justify-center overflow-hidden shrink-0",
+                "bg-card/40 backdrop-blur-md border border-white/10 shadow-xl",
+                "before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/5 before:to-transparent",
+                className
+            )}
             style={{ width: size + 8, height: size + 8 }}
         >
-            <Image
-                src={src}
-                alt={id || type}
-                width={size}
-                height={size}
-                className="object-contain"
-                unoptimized
-            />
+            <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+                <Image
+                    src={src}
+                    alt={id || type}
+                    width={size}
+                    height={size}
+                    className="object-contain drop-shadow-md transition-transform duration-300 group-hover:scale-110"
+                    unoptimized
+                />
+            </div>
+
+            {/* Subtle Inner Glow */}
+            <div className="absolute inset-0 rounded-full border border-white/5 pointer-events-none" />
         </div>
     );
 }

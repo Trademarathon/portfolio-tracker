@@ -211,12 +211,25 @@ export async function getHederaPortfolio(address: string): Promise<TokenBalance[
     try {
         // address is account ID like 0.0.12345
         const response = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${address}`);
-        if (!response.ok) throw new Error('HBAR Fetch Failed');
+        if (!response.ok) {
+            console.warn(`HBAR API returned ${response.status} for ${address}`);
+            return [];
+        }
         const data = await response.json();
-        return [{
-            symbol: 'HBAR',
-            balance: data.balance.balance / 1e8
-        }];
+
+        // Handle different response structures
+        let balance = 0;
+        if (data.balance) {
+            // New API format: balance.balance
+            balance = typeof data.balance.balance === 'number'
+                ? data.balance.balance / 1e8
+                : parseFloat(data.balance.balance || '0') / 1e8;
+        } else if (data.account) {
+            // Alternative format: account.balance
+            balance = parseFloat(data.account.balance || '0') / 1e8;
+        }
+
+        return balance > 0 ? [{ symbol: 'HBAR', balance }] : [];
     } catch (e) {
         console.warn("HBAR Portfolio Error:", e);
         return [];
@@ -329,19 +342,37 @@ export async function getSuiPortfolio(address: string): Promise<TokenBalance[]> 
             })
         });
         const data = await response.json();
-        if (!data.result) return [];
+
+        // Check for RPC errors
+        if (data.error) {
+            console.warn("SUI RPC Error:", data.error);
+            return [];
+        }
+
+        if (!data.result || !Array.isArray(data.result)) return [];
 
         return data.result.map((b: any) => {
             let symbol = 'SUI';
-            if (b.coinType !== '0x2::sui::SUI') {
+            if (b.coinType && b.coinType !== '0x2::sui::SUI') {
                 const parts = b.coinType.split('::');
                 symbol = parts[parts.length - 1];
             }
+
+            // Parse balance safely - totalBalance can be a very large number
+            let balance = 0;
+            try {
+                // SUI uses 9 decimals (1 SUI = 1e9 MIST)
+                const totalBalance = b.totalBalance || '0';
+                balance = parseFloat(totalBalance) / 1e9;
+            } catch (e) {
+                console.warn(`Failed to parse SUI balance for ${symbol}:`, e);
+            }
+
             return {
                 symbol,
-                balance: parseInt(b.totalBalance) / 1e9 // Discovery: SUI uses 9 decimals
+                balance
             };
-        });
+        }).filter((b: { symbol: string; balance: number }) => b.balance > 0); // Filter out zero balances
     } catch (e) {
         console.warn("SUI Portfolio Error:", e);
         return [];
@@ -383,18 +414,28 @@ export async function getSuiHistory(address: string): Promise<any[]> {
 export async function getAptosPortfolio(address: string): Promise<TokenBalance[]> {
     try {
         const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/resources`);
-        if (!response.ok) return [];
+        if (!response.ok) {
+            console.warn(`Aptos API returned ${response.status} for ${address}`);
+            return [];
+        }
         const data = await response.json();
 
         const balances: TokenBalance[] = [];
-        data.forEach((res: any) => {
-            if (res.type === '0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>') {
-                balances.push({
-                    symbol: 'APT',
-                    balance: parseInt(res.data.coin.value) / 1e8 // Discovery: APT uses 8 decimals
-                });
-            }
-        });
+        if (Array.isArray(data)) {
+            data.forEach((res: any) => {
+                if (res.type === '0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>') {
+                    try {
+                        const value = res.data?.coin?.value || '0';
+                        const balance = parseFloat(value) / 1e8; // APT uses 8 decimals
+                        if (balance > 0) {
+                            balances.push({ symbol: 'APT', balance });
+                        }
+                    } catch (parseError) {
+                        console.warn('Failed to parse APT balance:', parseError);
+                    }
+                }
+            });
+        }
         return balances;
     } catch (e) {
         console.warn("Aptos Portfolio Error:", e);
@@ -422,4 +463,175 @@ export async function getAptosHistory(address: string): Promise<any[]> {
         console.error("Aptos History Error:", e);
         return [];
     }
+}
+
+// TON
+export async function getTonPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        const response = await fetch(`https://toncenter.com/api/v2/getAddressInformation?address=${address}`);
+        const data = await response.json();
+        if (!data.ok || !data.result) return [];
+
+        return [{
+            symbol: 'TON',
+            balance: parseInt(data.result.balance) / 1e9
+        }];
+    } catch (e) {
+        console.warn("TON Portfolio Error:", e);
+        return [];
+    }
+}
+
+export async function getTonHistory(address: string): Promise<any[]> {
+    try {
+        const response = await fetch(`https://toncenter.com/api/v2/getTransactions?address=${address}&limit=50`);
+        const data = await response.json();
+        if (!data.ok || !data.result) return [];
+
+        return data.result.map((tx: any) => ({
+            id: tx.transaction_id.hash,
+            timestamp: tx.utime * 1000,
+            symbol: 'TON',
+            side: 'transfer',
+            price: 0,
+            amount: parseInt(tx.in_msg?.value || tx.out_msgs?.[0]?.value || 0) / 1e9,
+            exchange: 'TON',
+            status: 'Confirmed'
+        }));
+    } catch (e) {
+        console.error("TON History Error:", e);
+        return [];
+    }
+}
+
+// TRON
+export async function getTronPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        const response = await fetch(`https://api.trongrid.io/v1/accounts/${address}`);
+        const data = await response.json();
+        if (!data.data || !data.data[0]) return [];
+
+        const balances: TokenBalance[] = [];
+        const account = data.data[0];
+
+        // Native TRX
+        if (account.balance) {
+            balances.push({
+                symbol: 'TRX',
+                balance: account.balance / 1e6
+            });
+        }
+
+        // TRC20 tokens
+        if (account.trc20) {
+            Object.entries(account.trc20).forEach(([contract, amount]: [string, any]) => {
+                // Map common contracts to symbols
+                let symbol = 'TRC20';
+                if (contract === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t') symbol = 'USDT';
+                if (contract === 'TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8') symbol = 'USDC';
+
+                balances.push({
+                    symbol,
+                    balance: parseFloat(amount) / 1e6
+                });
+            });
+        }
+
+        return balances;
+    } catch (e) {
+        console.warn("TRON Portfolio Error:", e);
+        return [];
+    }
+}
+
+export async function getTronHistory(address: string): Promise<any[]> {
+    try {
+        const response = await fetch(`https://api.trongrid.io/v1/accounts/${address}/transactions?limit=50`);
+        const data = await response.json();
+        if (!data.data) return [];
+
+        return data.data.map((tx: any) => ({
+            id: tx.txID,
+            timestamp: tx.block_timestamp,
+            symbol: 'TRX',
+            side: 'transfer',
+            price: 0,
+            amount: 0,
+            exchange: 'TRON',
+            status: tx.ret?.[0]?.contractRet === 'SUCCESS' ? 'Confirmed' : 'Failed'
+        }));
+    } catch (e) {
+        console.error("TRON History Error:", e);
+        return [];
+    }
+}
+
+// XRP (Ripple)
+export async function getXrpPortfolio(address: string): Promise<TokenBalance[]> {
+    try {
+        const response = await fetch(`https://api.xrpscan.com/api/v1/account/${address}`);
+        if (!response.ok) {
+            console.warn(`XRP API returned ${response.status} for ${address}`);
+            return [];
+        }
+        const data = await response.json();
+
+        const balances: TokenBalance[] = [];
+
+        // Native XRP balance
+        if (data.xrpBalance) {
+            const balance = parseFloat(data.xrpBalance);
+            if (balance > 0) {
+                balances.push({ symbol: 'XRP', balance });
+            }
+        }
+
+        // Trustline tokens (issued currencies)
+        if (data.trustlines && Array.isArray(data.trustlines)) {
+            data.trustlines.forEach((tl: any) => {
+                const balance = parseFloat(tl.balance || '0');
+                if (balance > 0) {
+                    balances.push({
+                        symbol: tl.currency || 'Unknown',
+                        balance
+                    });
+                }
+            });
+        }
+
+        return balances;
+    } catch (e) {
+        console.warn("XRP Portfolio Error:", e);
+        return [];
+    }
+}
+
+export async function getXrpHistory(address: string): Promise<any[]> {
+    try {
+        const response = await fetch(`https://api.xrpscan.com/api/v1/account/${address}/transactions?limit=50`);
+        if (!response.ok) return [];
+        const data = await response.json();
+
+        if (!data.transactions || !Array.isArray(data.transactions)) return [];
+
+        return data.transactions.map((tx: any) => ({
+            id: tx.hash,
+            timestamp: new Date(tx.date).getTime(),
+            symbol: 'XRP',
+            side: tx.type === 'Payment' ? 'transfer' : 'other',
+            price: 0,
+            amount: parseFloat(tx.amount?.value || '0'),
+            exchange: 'XRP',
+            status: tx.result === 'tesSUCCESS' ? 'Confirmed' : 'Failed'
+        }));
+    } catch (e) {
+        console.error("XRP History Error:", e);
+        return [];
+    }
+}
+
+// Type definition
+interface TokenBalance {
+    symbol: string;
+    balance: number;
 }

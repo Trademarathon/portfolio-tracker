@@ -75,8 +75,8 @@ export function useUserHistory(connections: PortfolioConnection[]) {
                                 timestamp: f.time,
                                 symbol: f.coin,
                                 side: 'funding',
-                                amount: parseFloat(f.delta),
-                                pnl: parseFloat(f.delta), // funding delta is direct PNL
+                                amount: parseFloat(f.delta || '0') || 0,
+                                pnl: parseFloat(f.delta || '0') || 0, // funding delta is direct PNL
                                 exchange: 'Hyperliquid',
                                 connectionId: conn.id,
                                 feeType: 'funding'
@@ -169,9 +169,16 @@ export function useUserHistory(connections: PortfolioConnection[]) {
             });
 
             const trades: any[] = [];
+            const funding: any[] = [];
             tradeResults.forEach(result => {
                 if (result.status === 'fulfilled') {
-                    trades.push(...result.value);
+                    result.value.forEach((item: any) => {
+                        if (item.side === 'funding' || item.feeType === 'funding') {
+                            funding.push(item);
+                        } else {
+                            trades.push(item);
+                        }
+                    });
                 } else {
                     console.warn("[DeepHistory] Trade fetch failed", result.reason);
                 }
@@ -179,10 +186,15 @@ export function useUserHistory(connections: PortfolioConnection[]) {
 
             return {
                 transfers: transfers.sort((a: any, b: any) => b.timestamp - a.timestamp),
-                trades: trades.sort((a: any, b: any) => b.timestamp - a.timestamp)
+                trades: trades.sort((a: any, b: any) => b.timestamp - a.timestamp),
+                funding: funding.sort((a: any, b: any) => b.timestamp - a.timestamp)
             };
         },
         enabled: connections.length > 0,
-        staleTime: 1000 * 60 * 5, // 5 min
+        // AGGRESSIVE MODE: Reduced staleTime for near real-time updates
+        staleTime: 1000 * 10, // 10 seconds (was 5 min)
+        refetchInterval: 1000 * 15, // Auto-refetch every 15 seconds
+        refetchOnWindowFocus: true,
+        refetchOnMount: true,
     });
 }

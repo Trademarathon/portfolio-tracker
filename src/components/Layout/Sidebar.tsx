@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -13,7 +14,9 @@ import {
     Settings,
     Star,
     Globe,
+    Target,
 } from "lucide-react";
+import { ToggleTheme } from "@/components/ui/toggle-theme";
 
 const sidebarItems = [
     {
@@ -42,6 +45,11 @@ const sidebarItems = [
         icon: Wallet,
     },
     {
+        title: "Wallet Tracker",
+        href: "/wallet-tracker",
+        icon: Globe,
+    },
+    {
         title: "Futures",
         href: "/futures",
         icon: BarChart2,
@@ -60,6 +68,11 @@ const sidebarItems = [
         title: "Journal",
         href: "/journal",
         icon: BookOpen,
+    },
+    {
+        title: "About",
+        href: "/about",
+        icon: Star,
     },
     {
         title: "Settings",
@@ -102,21 +115,23 @@ export default function Sidebar({ className, onClose }: SidebarProps) {
     }
 
     return (
-        <div className={cn("h-screen w-64 bg-zinc-950 border-r border-white/5 flex flex-col z-50", className)}>
+        <div className={cn("h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col z-50", className)}>
             <div className="p-6">
                 <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center">
-                            <span className="text-white font-bold text-xl">P</span>
+                    <Link href="/" className="flex items-center gap-3 group">
+                        <div className="relative h-10 w-44 overflow-hidden">
+                            <Image
+                                src="/logo.png"
+                                alt="Trade Marathon"
+                                fill
+                                className="object-contain filter dark:brightness-110"
+                                priority
+                            />
                         </div>
-                        <span className="text-xl font-serif font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
-                            Portfolio
-                        </span>
-                    </div>
-                    {/* Mobile Close Button would go here if needed, but usually overlay handles it */}
+                    </Link>
                 </div>
 
-                <nav className="space-y-2">
+                <nav className="space-y-2 mb-8">
                     {sidebarItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = pathname === item.href;
@@ -127,21 +142,26 @@ export default function Sidebar({ className, onClose }: SidebarProps) {
                                 href={item.href}
                                 onClick={onClose}
                                 className={cn(
-                                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
+                                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-sm",
                                     isActive
-                                        ? "bg-primary text-white shadow-lg shadow-primary/25"
-                                        : "text-muted-foreground hover:bg-white/5 hover:text-white"
+                                        ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-sidebar-primary/25"
+                                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                                 )}
                             >
-                                <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-muted-foreground group-hover:text-white")} />
+                                <Icon className={cn("h-5 w-5", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground")} />
                                 <span className="font-medium">{item.title}</span>
                             </Link>
                         );
                     })}
                 </nav>
+
+                <div className="px-4 py-4 border-t border-sidebar-border mb-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground font-mono mb-3">Theme Selection</p>
+                    <ToggleTheme />
+                </div>
             </div>
 
-            <div className="mt-auto p-6 border-t border-white/5">
+            <div className="mt-auto p-6 border-t border-sidebar-border">
                 <div className={cn(
                     "rounded-xl p-4 border transition-colors duration-500",
                     systemStatus === 'online' ? "bg-emerald-500/10 border-emerald-500/20" :
@@ -163,7 +183,7 @@ export default function Sidebar({ className, onClose }: SidebarProps) {
                                 systemStatus === 'partial' ? "bg-yellow-500" :
                                     "bg-red-500"
                         )} />
-                        <span className="text-xs text-white/80">
+                        <span className="text-xs text-foreground/80">
                             {systemStatus === 'online' ? 'All Systems Operational' :
                                 systemStatus === 'partial' ? `${connectedCount}/${totalConnections} Connected` :
                                     'System Offline'}

@@ -90,6 +90,8 @@ export class WalletWebSocketManager {
         });
 
         // Monitor for pending transactions involving this address
+        // Disabled to prevent "Method not supported" errors on some RPCs
+        /*
         provider.on('pending', async (txHash) => {
             try {
                 const tx = await provider.getTransaction(txHash);
@@ -116,6 +118,7 @@ export class WalletWebSocketManager {
                 // Transaction might not be available yet, ignore
             }
         });
+        */
 
         this.monitors.set(monitorId, {
             address,

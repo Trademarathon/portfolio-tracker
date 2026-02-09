@@ -18,7 +18,24 @@ export function normalizeCexBalance(ccxtBalance: any): { symbol: string, balance
     const balances: { symbol: string, balance: number }[] = [];
 
     if (ccxtBalance && typeof ccxtBalance === 'object') {
-        const total = ccxtBalance.total || {};
+        // Try to use 'total' first (Binance style)
+        let total = ccxtBalance.total || {};
+
+        // If total is empty or missing, calculate from free + used (Bybit unified account style)
+        if (Object.keys(total).length === 0 && ccxtBalance.free && ccxtBalance.used) {
+            const free = ccxtBalance.free || {};
+            const used = ccxtBalance.used || {};
+
+            // Merge free and used to calculate total
+            const allSymbols = new Set([...Object.keys(free), ...Object.keys(used)]);
+            allSymbols.forEach(symbol => {
+                const freeAmount = typeof free[symbol] === 'string' ? parseFloat(free[symbol]) : (free[symbol] || 0);
+                const usedAmount = typeof used[symbol] === 'string' ? parseFloat(used[symbol]) : (used[symbol] || 0);
+                total[symbol] = freeAmount + usedAmount;
+            });
+        }
+
+        // Now extract balances from total
         Object.entries(total).forEach(([symbol, balance]) => {
             const b = typeof balance === 'string' ? parseFloat(balance) : (balance as number);
             if (b > 0) {

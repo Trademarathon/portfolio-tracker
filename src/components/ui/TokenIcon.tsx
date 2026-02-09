@@ -10,28 +10,51 @@ interface TokenIconProps {
     size?: number;
 }
 
+import { getTokenColor } from "@/lib/token-metadata";
+
 export function TokenIcon({ symbol, className, size = 32 }: TokenIconProps) {
     const [error, setError] = useState(false);
     const normalizedSymbol = symbol.toLowerCase();
 
+    // Try CoinCap first, it's generally good. We can add manual overrides here if needed.
     const iconUrl = `https://assets.coincap.io/assets/icons/${normalizedSymbol}@2x.png`;
 
     if (error) {
         return <CryptoIcon type={symbol} size={size} className={className} />;
     }
 
+    const fallbackColor = getTokenColor(symbol);
+
     return (
-        <Avatar className={cn("inline-block", className)} style={{ width: size, height: size }}>
-            <AvatarImage
-                src={iconUrl}
-                alt={symbol}
-                onError={() => setError(true)}
-                className="object-cover"
-            />
-            <AvatarFallback className="flex items-center justify-center bg-zinc-800 text-zinc-400">
-                <CryptoIcon type={symbol} size={size - 8} />
-            </AvatarFallback>
-        </Avatar>
+        <div
+            className={cn(
+                "relative rounded-full shrink-0 flex items-center justify-center bg-card/40 backdrop-blur-md border border-white/10 overflow-hidden group",
+                className
+            )}
+            style={{ width: size, height: size }}
+        >
+            <Avatar className="h-full w-full bg-transparent overflow-hidden">
+                <AvatarImage
+                    src={iconUrl}
+                    alt={symbol}
+                    onError={() => setError(true)}
+                    className="object-cover transition-transform duration-300 group-hover:scale-110"
+                />
+                <AvatarFallback
+                    className="flex items-center justify-center text-white/90 font-bold uppercase tracking-tighter"
+                    style={{
+                        backgroundColor: fallbackColor,
+                        fontSize: size * 0.35,
+                        textShadow: "0 1px 2px rgba(0,0,0,0.3)"
+                    }}
+                >
+                    {symbol.slice(0, 2)}
+                </AvatarFallback>
+            </Avatar>
+
+            {/* Premium Shine Layer */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none" />
+        </div>
     );
 }
 

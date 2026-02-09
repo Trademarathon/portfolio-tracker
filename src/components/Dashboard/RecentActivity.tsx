@@ -79,7 +79,10 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
 
         return (
             <div style={style}>
-                <div className="flex items-center h-full border-b border-white/5 hover:bg-white/5 transition-colors px-3 text-sm">
+                <div
+                    onClick={() => window.location.href = `/asset/${symbol.replace('/USDT', '')}`}
+                    className="flex items-center h-full border-b border-white/5 hover:bg-white/5 transition-colors px-3 text-sm cursor-pointer"
+                >
                     <div className="w-[100px] text-zinc-500 font-mono text-xs shrink-0">
                         {format(act.timestamp, 'MM/dd HH:mm')}
                     </div>
@@ -181,7 +184,11 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
                                         </thead>
                                         <tbody>
                                             {positions.map((pos, idx) => (
-                                                <tr key={`${pos.symbol}-${idx}`} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                                <tr
+                                                    key={`${pos.symbol}-${idx}`}
+                                                    onClick={() => window.location.href = `/asset/${pos.symbol.replace(/USDT|PERP|-USD/g, '')}`}
+                                                    className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                                                >
                                                     <td className="px-3 py-3">
                                                         <div className="flex items-center gap-2">
                                                             <TokenIcon symbol={pos.symbol.replace(/USDT|PERP|-USD/g, '')} size={20} />
