@@ -1,32 +1,31 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Sidebar from "./Sidebar";
-import { motion, AnimatePresence } from "framer-motion";
 import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 
-export default function MobileNav() {
+const MobileNav = memo(function MobileNav() {
     const [isOpen, setIsOpen] = useState(false);
     const pathname = usePathname();
 
-    // Close sidebar when route changes
+    // Close sidebar when route changes - instant
     useEffect(() => {
         setIsOpen(false);
     }, [pathname]);
 
     // Prevent body scroll when menu is open
     useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = 'unset';
-        }
+        document.body.style.overflow = isOpen ? 'hidden' : 'unset';
         return () => {
             document.body.style.overflow = 'unset';
         };
     }, [isOpen]);
+
+    const handleClose = useCallback(() => setIsOpen(false), []);
+    const handleOpen = useCallback(() => setIsOpen(true), []);
 
     return (
         <div className="md:hidden">
@@ -43,8 +42,8 @@ export default function MobileNav() {
                 <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setIsOpen(true)}
-                    className="text-muted-foreground hover:text-white"
+                    onClick={handleOpen}
+                    className="text-muted-foreground hover:text-white active:scale-95 transition-transform duration-75"
                 >
                     <Menu className="h-6 w-6" />
                 </Button>
@@ -53,45 +52,40 @@ export default function MobileNav() {
             {/* Spacer for fixed header */}
             <div className="h-16" />
 
-            {/* Overlay & Sidebar */}
-            <AnimatePresence>
-                {isOpen && (
-                    <>
-                        {/* Backdrop */}
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setIsOpen(false)}
-                            className="fixed inset-0 bg-black/80 z-50 backdrop-blur-sm"
-                        />
-
-                        {/* Sidebar */}
-                        <motion.div
-                            initial={{ x: "-100%" }}
-                            animate={{ x: 0 }}
-                            exit={{ x: "-100%" }}
-                            transition={{ type: "spring", damping: 20, stiffness: 300 }}
-                            className="fixed inset-y-0 left-0 z-50 shadow-xl"
-                        >
-                            <div className="relative h-full">
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setIsOpen(false)}
-                                    className="absolute top-4 right-4 text-muted-foreground hover:text-white z-50 md:hidden"
-                                >
-                                    <X className="h-5 w-5" />
-                                </Button>
-                                <Sidebar
-                                    className="w-[280px] h-full"
-                                    onClose={() => setIsOpen(false)}
-                                />
-                            </div>
-                        </motion.div>
-                    </>
+            {/* Ultra-fast CSS-based Overlay & Sidebar */}
+            {/* Backdrop - CSS transition instead of framer-motion */}
+            <div 
+                onClick={handleClose}
+                className={cn(
+                    "fixed inset-0 bg-black/80 z-50 backdrop-blur-sm transition-opacity duration-150 ease-out",
+                    isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
                 )}
-            </AnimatePresence>
+            />
+
+            {/* Sidebar - CSS transform instead of framer-motion */}
+            <div
+                className={cn(
+                    "fixed inset-y-0 left-0 z-50 shadow-xl transition-transform duration-150 ease-out",
+                    isOpen ? "translate-x-0" : "-translate-x-full"
+                )}
+            >
+                <div className="relative h-full">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleClose}
+                        className="absolute top-4 right-4 text-muted-foreground hover:text-white z-50 md:hidden active:scale-95 transition-transform duration-75"
+                    >
+                        <X className="h-5 w-5" />
+                    </Button>
+                    <Sidebar
+                        className="w-[280px] h-full"
+                        onClose={handleClose}
+                    />
+                </div>
+            </div>
         </div>
     );
-}
+});
+
+export default MobileNav;

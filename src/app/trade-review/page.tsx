@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { usePortfolioData } from "@/hooks/usePortfolioData";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 import { useTradeJournal } from "@/hooks/useTradeJournal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionErrorBoundary } from "@/components/Dashboard/SectionErrorBoundary";
+import { PageWrapper } from "@/components/Layout/PageWrapper";
 import { StrategyBadge, StrategyTagSelector } from "@/components/Journal/StrategyTagSelector";
 import { TradeAnnotationModal } from "@/components/Journal/TradeAnnotationModal";
 import { TokenIcon } from "@/components/ui/TokenIcon";
@@ -25,7 +27,7 @@ import {
 } from "lucide-react";
 
 export default function TradeReviewPage() {
-    const { activities } = usePortfolioData();
+    const { activities } = usePortfolio();
     const {
         annotations,
         addAnnotation,
@@ -42,7 +44,7 @@ export default function TradeReviewPage() {
 
     // Get all trades from activities
     const allTrades = useMemo(() => {
-        return activities
+        return (activities || [])
             .filter(a => a.activityType === 'trade')
             .sort((a, b) => b.timestamp - a.timestamp);
     }, [activities]);
@@ -94,6 +96,9 @@ export default function TradeReviewPage() {
         : 0;
 
     return (
+        <SectionErrorBoundary sectionName="Trade Review" fallback={
+            <PageWrapper><div className="flex flex-col items-center justify-center min-h-[40vh] gap-4"><p className="text-sm text-zinc-400">Something went wrong.</p><button type="button" onClick={() => window.location.reload()} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold">Reload</button></div></PageWrapper>
+        }>
         <div className="p-8 max-w-7xl mx-auto space-y-8 pb-32">
             {/* Header */}
             <div className="flex flex-col gap-2">
@@ -341,5 +346,6 @@ export default function TradeReviewPage() {
                 />
             )}
         </div>
+        </SectionErrorBoundary>
     );
 }

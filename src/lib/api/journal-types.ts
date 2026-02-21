@@ -41,6 +41,10 @@ export interface TradeAnnotation {
     marketProfile?: MarketProfileObservation;
     atrAtEntry?: number;
     trevSettings?: string; // e.g., "T-Size 5, Delta Threshold 200"
+    mistakeTags?: string[]; // e.g., ["chased", "ignored_val", "early_exit"]
+    targets?: Array<{ price: number; sizePercent?: number; triggered?: boolean }>;
+    stops?: Array<{ price: number; sizePercent?: number; triggered?: boolean }>;
+    screenshots?: string[];
     createdAt: number;
     updatedAt: number;
 }

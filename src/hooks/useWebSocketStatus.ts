@@ -1,8 +1,7 @@
-// Hook to expose WebSocket connection status
-import { usePortfolioData } from './usePortfolioData';
+import { usePortfolio } from '@/contexts/PortfolioContext';
 import { WebSocketConnectionInfo } from '@/lib/api/websocket-types';
 
 export function useWebSocketStatus(): Map<string, WebSocketConnectionInfo> {
-    const { wsConnectionStatus } = usePortfolioData();
+    const { wsConnectionStatus } = usePortfolio();
     return wsConnectionStatus || new Map();
 }

@@ -1,7 +1,9 @@
 import { PortfolioConnection } from '@/lib/api/types';
+import { apiUrl } from '@/lib/api/client';
+import { WS_ENDPOINTS } from './websocket-endpoints';
 import CryptoJS from 'crypto-js';
 
-type MessageHandler = (data: any) => void;
+type MessageHandler = (data: unknown) => void;
 
 interface ActiveSocket {
     id: string; // Connection ID
@@ -43,7 +45,7 @@ export class PrivateWebSocketManager {
     private async connectBinance(conn: PortfolioConnection) {
         try {
             // 1. Spot ListenKey
-            const spotRes = await fetch('/api/binance/listen-key', {
+            const spotRes = await fetch(apiUrl('/api/binance/listen-key'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey: conn.apiKey, apiSecret: conn.secret })
@@ -51,13 +53,13 @@ export class PrivateWebSocketManager {
             const spotData = await spotRes.json();
 
             if (spotData.listenKey) {
-                const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${spotData.listenKey}`);
+                const ws = new WebSocket(`${WS_ENDPOINTS.binance.wsSpot}/${spotData.listenKey}`);
                 ws.onmessage = (event) => {
                     this.handleBinanceMessage(JSON.parse(event.data), conn.name, 'Spot');
                 };
 
                 const keepAlive = setInterval(async () => {
-                    await fetch('/api/binance/listen-key', {
+                    await fetch(apiUrl('/api/binance/listen-key'), {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ apiKey: conn.apiKey, listenKey: spotData.listenKey })
@@ -68,7 +70,7 @@ export class PrivateWebSocketManager {
             }
 
             // 2. Futures ListenKey
-            const futuresRes = await fetch('/api/binance/listen-key-futures', {
+            const futuresRes = await fetch(apiUrl('/api/binance/listen-key-futures'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey: conn.apiKey, apiSecret: conn.secret })
@@ -76,13 +78,13 @@ export class PrivateWebSocketManager {
             const futuresData = await futuresRes.json();
 
             if (futuresData.listenKey) {
-                const fWs = new WebSocket(`wss://fstream.binance.com/ws/${futuresData.listenKey}`);
+                const fWs = new WebSocket(`${WS_ENDPOINTS.binance.ws}/${futuresData.listenKey}`);
                 fWs.onmessage = (event) => {
                     this.handleBinanceMessage(JSON.parse(event.data), conn.name, 'Futures');
                 };
 
                 const fKeepAlive = setInterval(async () => {
-                    await fetch('/api/binance/listen-key-futures', {
+                    await fetch(apiUrl('/api/binance/listen-key-futures'), {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ apiKey: conn.apiKey, listenKey: futuresData.listenKey })
@@ -97,39 +99,48 @@ export class PrivateWebSocketManager {
         }
     }
 
-    private handleBinanceMessage(msg: any, sourceName: string, marketType: 'Spot' | 'Futures') {
+    private handleBinanceMessage(msg: unknown, sourceName: string, marketType: 'Spot' | 'Futures') {
         // Spot: outboundAccountPosition
         // Futures: ACCOUNT_UPDATE
 
-        if (msg.e === 'outboundAccountPosition') {
-            const balances = msg.B.map((b: any) => ({
-                symbol: b.a,
-                free: parseFloat(b.f),
-                locked: parseFloat(b.l)
-            })).filter((b: any) => b.free > 0 || b.locked > 0);
+        const m = msg as Record<string, unknown>;
+
+        if (m.e === 'outboundAccountPosition') {
+            const balances = ((m.B as unknown[]) || []).map((b) => {
+                const bb = b as Record<string, unknown>;
+                return {
+                    symbol: String(bb.a || ''),
+                    free: parseFloat(String(bb.f || '0')),
+                    locked: parseFloat(String(bb.l || '0')),
+                };
+            }).filter((b) => b.free > 0 || b.locked > 0);
 
             this.onMessage({ source: sourceName, type: 'balance', data: balances });
         }
-        else if (msg.e === 'ACCOUNT_UPDATE' && marketType === 'Futures') {
+        else if (m.e === 'ACCOUNT_UPDATE' && marketType === 'Futures') {
             // Binance Futures Account Update
             // Includes Balance and Positions
-            const update = msg.a; // Account Update Data
+            const update = (m.a || {}) as Record<string, unknown>; // Account Update Data
             // B: Balances -> filtered for changed
             // P: Positions -> filtered for changed
 
-            if (update.P && update.P.length > 0) {
-                const positions = update.P.map((p: any) => ({
-                    symbol: p.s,
-                    size: parseFloat(p.pa),
-                    entryPrice: parseFloat(p.ep),
-                    markPrice: 0, // Need to fetch or get from mark price stream? 
-                    // Usually ACCOUNT_UPDATE doesn't have mark price, just entry. 
-                    // We might need to merge with ticker stream or just use current price hook in UI.
-                    // For now, partial data is better than none.
-                    pnl: parseFloat(p.up), // Unrealized PnL
-                    side: parseFloat(p.pa) > 0 ? 'long' : 'short', // Logic check
-                    leverage: 0 // Not always sent
-                })).filter((p: any) => Math.abs(p.size) > 0);
+            const P = (update.P as unknown[]) || [];
+            if (P.length > 0) {
+                const positions = P.map((p) => {
+                    const pp = p as Record<string, unknown>;
+                    return {
+                        symbol: String(pp.s || ''),
+                        size: parseFloat(String(pp.pa || '0')),
+                        entryPrice: parseFloat(String(pp.ep || '0')),
+                        markPrice: 0, // Need to fetch or get from mark price stream? 
+                        // Usually ACCOUNT_UPDATE doesn't have mark price, just entry. 
+                        // We might need to merge with ticker stream or just use current price hook in UI.
+                        // For now, partial data is better than none.
+                        pnl: parseFloat(String(pp.up || '0')), // Unrealized PnL
+                        side: parseFloat(String(pp.pa || '0')) > 0 ? 'long' : 'short', // Logic check
+                        leverage: 0 // Not always sent
+                    };
+                }).filter((pos) => Math.abs(pos.size) > 0);
 
                 if (positions.length > 0) {
                     this.onMessage({ source: sourceName, type: 'positions', data: positions });
@@ -142,7 +153,7 @@ export class PrivateWebSocketManager {
 
     // --- BYBIT ---
     private connectBybit(conn: PortfolioConnection) {
-        const ws = new WebSocket('wss://stream.bybit.com/v5/private');
+        const ws = new WebSocket(WS_ENDPOINTS.bybit.wsPrivate);
 
         ws.onopen = () => {
             // Authenticate
@@ -173,21 +184,28 @@ export class PrivateWebSocketManager {
         this.sockets.push({ id: conn.id, ws });
     }
 
-    private handleBybitMessage(msg: any, sourceName: string) {
-        if (msg.topic === 'wallet') {
-            const data = msg.data[0];
-            const balances = data.coin.map((c: any) => ({
-                symbol: c.coin,
-                free: parseFloat(c.walletBalance),
-                locked: 0 // Simplification
-            }));
+    private handleBybitMessage(msg: unknown, sourceName: string) {
+        const m = msg as Record<string, unknown>;
+        if (m.topic === 'wallet') {
+            const data = ((m.data as unknown[]) || [])[0] as Record<string, unknown> | undefined;
+            const coins = ((data?.coin as unknown[]) || []);
+            const balances = coins.map((c) => {
+                const cc = c as Record<string, unknown>;
+                // Use equity (Total Value, incl PnL) if available, otherwise walletBalance
+                const total = parseFloat(String(cc.equity ?? cc.walletBalance ?? '0'));
+                return {
+                    symbol: String(cc.coin || ''),
+                    free: total,
+                    locked: 0 // total effectively captures everything for portfolio view
+                };
+            });
             this.onMessage({ source: sourceName, type: 'balance', data: balances });
         }
     }
 
     // --- HYPERLIQUID ---
     private connectHyperliquid(conn: PortfolioConnection) {
-        const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
+        const ws = new WebSocket(WS_ENDPOINTS.hyperliquid.ws);
 
         ws.onopen = () => {
             ws.send(JSON.stringify({

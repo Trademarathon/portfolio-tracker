@@ -2,43 +2,27 @@
 
 import { useEffect } from 'react';
 
+const isDev = typeof process !== 'undefined' && process.env.NODE_ENV === 'development';
+
+
+/**
+ * Suppresses known-noisy console in development. Keeps the patch for the session (no restore on unmount).
+ */
 export function ErrorSuppressor() {
     useEffect(() => {
-        // Backup original verified
-        const originalError = console.error;
+        if (!isDev) return;
+
         const originalWarn = console.warn;
-
-        // Override console.error
-        console.error = (...args) => {
-            // Filter out specific error messages that cause annoyance in dev mode
-            const msg = args.join(' ');
-            if (
-                msg.includes('ws error: undefined') ||
-                msg.includes('WebSocket connection failed') ||
-                msg.includes('ws error') ||
-                msg.includes('provider destroyed') ||
-                msg.includes('UNSUPPORTED_OPERATION')
-            ) {
-                // Suppress or downgrade to log
-                // console.log('[Suppressed Error]', ...args); 
-                return;
-            }
-            originalError.apply(console, args);
-        };
-
-        // Override console.warn if needed (optional)
-        console.warn = (...args) => {
-            const msg = args.join(' ');
-            if (msg.includes('ws error')) {
+        console.warn = (...args: unknown[]) => {
+            const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
+            if (msg.includes('ws error: undefined')) {
                 return;
             }
             originalWarn.apply(console, args);
         };
 
         return () => {
-            // Cleanup if needed? Usually we want this persistent.
-            // But for HMR, we might want to restore?
-            // console.error = originalError; 
+            console.warn = originalWarn;
         };
     }, []);
 

@@ -133,7 +133,7 @@ export function SpotActivityTracker({ trades, maxItems = 8 }: SpotActivityTracke
                                                     "text-xs font-bold",
                                                     isBuy ? "text-emerald-500" : "text-rose-500"
                                                 )}>
-                                                    {trade.side.toUpperCase()}
+                                                    {trade.side?.toUpperCase?.() || ''}
                                                 </span>
                                                 <span className="text-sm font-bold text-white">{symbol}</span>
                                                 {isLimit && (

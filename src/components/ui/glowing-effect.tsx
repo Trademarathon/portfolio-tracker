@@ -9,7 +9,7 @@ interface GlowingEffectProps {
     inactiveZone?: number;
     proximity?: number;
     spread?: number;
-    variant?: "default" | "white";
+    variant?: "default" | "white" | "apple";
     glow?: boolean;
     className?: string;
     disabled?: boolean;
@@ -77,7 +77,7 @@ const GlowingEffect = memo(
 
                     const currentAngle =
                         parseFloat(element.style.getPropertyValue("--start")) || 0;
-                    let targetAngle =
+                    const targetAngle =
                         (180 * Math.atan2(mouseY - center[1], mouseX - center[0])) /
                         Math.PI +
                         90;
@@ -86,15 +86,15 @@ const GlowingEffect = memo(
                     const newAngle = currentAngle + angleDiff;
 
                     animate(currentAngle, newAngle, {
-                        duration: movementDuration,
-                        ease: [0.16, 1, 0.3, 1],
+                        duration: variant === "apple" ? movementDuration * 1.5 : movementDuration,
+                        ease: variant === "apple" ? [0.33, 1, 0.68, 1] : [0.16, 1, 0.3, 1],
                         onUpdate: (value) => {
                             element.style.setProperty("--start", String(value));
                         },
                     });
                 });
             },
-            [inactiveZone, proximity, movementDuration]
+            [inactiveZone, proximity, movementDuration, variant]
         );
 
         useEffect(() => {
@@ -123,7 +123,7 @@ const GlowingEffect = memo(
                     className={cn(
                         "pointer-events-none absolute -inset-px hidden rounded-[inherit] border opacity-0 transition-opacity",
                         glow && "opacity-100",
-                        variant === "white" && "border-white",
+                        (variant === "white" || variant === "apple") && "border-white/20",
                         disabled && "!block"
                     )}
                 />
@@ -143,6 +143,18 @@ const GlowingEffect = memo(
                   from 236.84deg at 50% 50%,
                   var(--black),
                   var(--black) calc(25% / var(--repeating-conic-gradient-times))
+                )`
+                                    : variant === "apple"
+                                    ? `radial-gradient(ellipse 80% 50% at 50% 50%, rgba(255,255,255,0.18) 0%, transparent 50%),
+                radial-gradient(ellipse 60% 40% at 30% 40%, rgba(255,255,255,0.1) 0%, transparent 45%),
+                radial-gradient(ellipse 60% 40% at 70% 60%, rgba(255,255,255,0.08) 0%, transparent 45%),
+                repeating-conic-gradient(
+                  from 236.84deg at 50% 50%,
+                  rgba(255,255,255,0.12) 0%,
+                  rgba(255,255,255,0.06) calc(25% / var(--repeating-conic-gradient-times)),
+                  rgba(255,255,255,0.1) calc(50% / var(--repeating-conic-gradient-times)),
+                  rgba(255,255,255,0.05) calc(75% / var(--repeating-conic-gradient-times)),
+                  rgba(255,255,255,0.12) calc(100% / var(--repeating-conic-gradient-times))
                 )`
                                     : `radial-gradient(circle, #dd7bbb 10%, #dd7bbb00 20%),
                 radial-gradient(circle at 40% 40%, #d79f1e 5%, #d79f1e00 15%),

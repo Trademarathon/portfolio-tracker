@@ -4,18 +4,18 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, AreaChart, Area } from "recharts";
 import { useState } from "react";
 import { ChevronDown, Wallet, TrendingUp } from "lucide-react";
-import { usePortfolioData } from "@/hooks/usePortfolioData";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 
 export const SalesChart = () => {
     const [selectedMetric, setSelectedMetric] = useState<"value" | "balance">("value");
-    const { assets, wsConnectionStatus } = usePortfolioData();
+    const { assets, wsConnectionStatus } = usePortfolio();
 
     // Get wallet connections
     const walletConnections = Array.from(wsConnectionStatus?.entries() || [])
         .filter(([_, info]) => ['zerion', 'wallet', 'evm', 'solana'].includes(info.type));
 
     // Get wallet assets with values
-    const walletAssets = assets.filter(asset => {
+    const walletAssets = (assets || []).filter(asset => {
         if (!asset.breakdown) return false;
         return Object.keys(asset.breakdown).some(sourceId => {
             const connection = wsConnectionStatus?.get(sourceId);
@@ -40,7 +40,7 @@ export const SalesChart = () => {
     // No wallets connected - show empty state
     if (walletConnections.length === 0 || walletAssets.length === 0) {
         return (
-            <Card className="bg-[#141318] border-white/5 h-full min-h-[400px]">
+            <Card className="bg-[#141318] border-white/5 h-full min-h-[400px] clone-wallet-card clone-noise">
                 <CardHeader>
                     <CardTitle className="text-xl font-bold font-urbanist">Asset Distribution</CardTitle>
                 </CardHeader>
@@ -56,7 +56,7 @@ export const SalesChart = () => {
     }
 
     return (
-        <Card className="bg-[#141318] border-white/5 h-full min-h-[400px]">
+        <Card className="bg-[#141318] border-white/5 h-full min-h-[400px] clone-wallet-card clone-noise">
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <CardTitle className="text-xl font-bold font-urbanist">Asset Distribution</CardTitle>
@@ -66,7 +66,7 @@ export const SalesChart = () => {
                 </div>
             </CardHeader>
             <CardContent>
-                <div className="h-[300px] w-full">
+                <div className="h-[300px] w-full rounded-2xl border border-white/10 bg-black/20 p-2 clone-chart-grid">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={walletAssets} layout="vertical" margin={{ left: 50, right: 20 }}>
                             <XAxis type="number" hide />
@@ -100,7 +100,7 @@ export const SalesChart = () => {
                 {/* Asset Legend */}
                 <div className="flex flex-wrap gap-4 mt-4">
                     {walletAssets.slice(0, 5).map((asset, idx) => (
-                        <div key={asset.symbol} className="flex items-center gap-2">
+                        <div key={asset.symbol} className="flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1 bg-white/[0.03]">
                             <div
                                 className="h-2 w-2 rounded-full"
                                 style={{ backgroundColor: idx === 0 ? '#7F6AFF' : idx === 1 ? '#5648B2' : '#3D3375' }}

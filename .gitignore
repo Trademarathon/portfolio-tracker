@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+node_modules/
+**/node_modules/
+terminal-dashboard/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -23,6 +26,11 @@
 # misc
 .DS_Store
 *.pem
+.cursor/
+*.dmg
+dev.db
+debug_*.json
+lint_errors.txt
 
 # debug
 npm-debug.log*
@@ -41,3 +49,18 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Tauri & Electron
+src-tauri/target/
+src-tauri/gen/
+release/
+release-next/
+renderer/
+ios-native/
+macos-native/
+trademarathonemac/
+bin/
+terminal-dashboard/
+backend/
+build/
+out/

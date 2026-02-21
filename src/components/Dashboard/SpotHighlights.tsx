@@ -1,13 +1,24 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PortfolioAsset } from "@/lib/api/types";
 import { TrendingUp, TrendingDown, Trophy } from "lucide-react";
-import { GlowingEffect } from "@/components/ui/glowing-effect";
+import { memo, useMemo, useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 
 interface SpotHighlightsProps {
     assets: PortfolioAsset[];
+    orders: any[];
 }
 
-export function SpotHighlights({ assets }: SpotHighlightsProps) {
+export const SpotHighlights = memo(({ assets = [], orders = [] }: SpotHighlightsProps) => {
+    const [isAnimating, setIsAnimating] = useState(true);
+    
+    // Trigger animation on mount
+    useEffect(() => {
+        const timer = setTimeout(() => setIsAnimating(false), 2000);
+        return () => clearTimeout(timer);
+    }, []);
+    
     if (assets.length === 0) return null;
 
     // Highest Holding
@@ -22,102 +33,71 @@ export function SpotHighlights({ assets }: SpotHighlightsProps) {
     const topLoser = sortedByPerformance[sortedByPerformance.length - 1];
 
     return (
-        <div className="grid gap-4 md:grid-cols-3">
-            {/* Highest Holding */}
-            <div className="relative h-full rounded-xl">
-                <GlowingEffect
-                    spread={40}
-                    glow={true}
-                    disabled={false}
-                    proximity={64}
-                    inactiveZone={0.01}
-                />
-                <Card className="relative h-full bg-zinc-900/50 border-white/10 overflow-hidden">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Highest Holding</CardTitle>
-                        <Trophy className="h-4 w-4 text-yellow-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold flex items-center gap-2">
-                            {highestHolding.symbol}
-                            <span className="text-sm font-normal text-muted-foreground">
-                                ${highestHolding.valueUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                            </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            {highestHolding.allocations.toFixed(1)}% of Portfolio
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
+        <div className="flex flex-col gap-4">
+            <div className="grid gap-4 md:grid-cols-3">
+                {/* Highest Holding - StatCard style */}
+                <div className={cn(
+                    "flex items-center gap-3 p-3 rounded-xl bg-gradient-to-br border transition-all duration-300 hover:scale-[1.01] clone-card",
+                    "from-amber-500/10 to-amber-500/5 border-amber-500/20"
+                )}>
+                    <div className="p-2 rounded-lg bg-black/20 text-amber-400">
+                        <Trophy className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Highest Holding</span>
+                        <span className="text-lg font-black text-white truncate">
+                            {highestHolding.symbol} ${highestHolding.valueUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-bold">{highestHolding.allocations.toFixed(1)}% of Portfolio</span>
+                    </div>
+                </div>
 
-            {/* Top Gainer */}
-            <div className="relative h-full rounded-xl">
-                <GlowingEffect
-                    spread={40}
-                    glow={true}
-                    disabled={false}
-                    proximity={64}
-                    inactiveZone={0.01}
-                />
-                <Card className="relative h-full bg-zinc-900/50 border-white/10 overflow-hidden">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Top Performer (24h)</CardTitle>
-                        <TrendingUp className="h-4 w-4 text-emerald-500" />
-                    </CardHeader>
-                    <CardContent>
+                {/* Top Gainer - StatCard style */}
+                <div className={cn(
+                    "flex items-center gap-3 p-3 rounded-xl bg-gradient-to-br border transition-all duration-300 hover:scale-[1.01] clone-card",
+                    "from-emerald-500/10 to-emerald-500/5 border-emerald-500/20"
+                )}>
+                    <div className="p-2 rounded-lg bg-black/20 text-emerald-400">
+                        <TrendingUp className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Top Performer (24h)</span>
                         {topGainer && (topGainer.priceChange24h || 0) > 0 ? (
                             <>
-                                <div className="text-2xl font-bold flex items-center gap-2 text-emerald-500">
-                                    {topGainer.symbol}
-                                    <span className="text-sm font-normal text-emerald-500/80">
-                                        +{topGainer.priceChange24h?.toFixed(2)}%
-                                    </span>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    Price: ${topGainer.price?.toLocaleString()}
-                                </p>
+                                <span className="text-lg font-black text-emerald-400 truncate">
+                                    {topGainer.symbol} +{topGainer.priceChange24h?.toFixed(2)}%
+                                </span>
+                                <span className="text-[10px] text-zinc-500 font-bold">${topGainer.price?.toLocaleString()}</span>
                             </>
                         ) : (
-                            <div className="text-sm text-muted-foreground pt-1">No positive movers</div>
+                            <span className="text-sm font-bold text-zinc-500">No positive movers</span>
                         )}
-                    </CardContent>
-                </Card>
-            </div>
+                    </div>
+                </div>
 
-            {/* Top Loser */}
-            <div className="relative h-full rounded-xl">
-                <GlowingEffect
-                    spread={40}
-                    glow={true}
-                    disabled={false}
-                    proximity={64}
-                    inactiveZone={0.01}
-                />
-                <Card className="relative h-full bg-zinc-900/50 border-white/10 overflow-hidden">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Worst Performer (24h)</CardTitle>
-                        <TrendingDown className="h-4 w-4 text-red-500" />
-                    </CardHeader>
-                    <CardContent>
+                {/* Top Loser - StatCard style */}
+                <div className={cn(
+                    "flex items-center gap-3 p-3 rounded-xl bg-gradient-to-br border transition-all duration-300 hover:scale-[1.01] clone-card",
+                    "from-rose-500/10 to-rose-500/5 border-rose-500/20"
+                )}>
+                    <div className="p-2 rounded-lg bg-black/20 text-rose-400">
+                        <TrendingDown className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Worst Performer (24h)</span>
                         {topLoser && (topLoser.priceChange24h || 0) < 0 ? (
                             <>
-                                <div className="text-2xl font-bold flex items-center gap-2 text-red-500">
-                                    {topLoser.symbol}
-                                    <span className="text-sm font-normal text-red-500/80">
-                                        {topLoser.priceChange24h?.toFixed(2)}%
-                                    </span>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    Price: ${topLoser.price?.toLocaleString()}
-                                </p>
+                                <span className="text-lg font-black text-rose-400 truncate">
+                                    {topLoser.symbol} {topLoser.priceChange24h?.toFixed(2)}%
+                                </span>
+                                <span className="text-[10px] text-zinc-500 font-bold">${topLoser.price?.toLocaleString()}</span>
                             </>
                         ) : (
-                            <div className="text-sm text-muted-foreground pt-1">No negative movers</div>
+                            <span className="text-sm font-bold text-zinc-500">No negative movers</span>
                         )}
-                    </CardContent>
-                </Card>
+                    </div>
+                </div>
             </div>
         </div>
     );
-}
+});

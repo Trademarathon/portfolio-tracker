@@ -35,10 +35,12 @@ export function useTrackedWallets() {
             try {
                 const stored = localStorage.getItem(STORAGE_KEY);
                 if (stored) {
-                    setGroups(JSON.parse(stored));
+                    const parsed = JSON.parse(stored);
+                    setGroups(Array.isArray(parsed) ? parsed : []);
                 }
             } catch (e) {
                 console.error("Failed to load tracked groups", e);
+                setGroups([]);
             } finally {
                 setIsInitialized(true);
             }

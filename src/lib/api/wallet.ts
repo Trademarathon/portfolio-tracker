@@ -1,35 +1,393 @@
 import { ethers } from 'ethers';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { ultraFetch, getLatencyTracker } from '@/lib/ultraFast';
 
-// EVM Token Interfaces
-const ERC20_ABI = [
-    "function balanceOf(address owner) view returns (uint256)",
-    "function decimals() view returns (uint8)",
-    "function symbol() view returns (string)"
-];
+/**
+ * Fetch external APIs with resilient behavior across environments:
+ * - Server/Tauri/static-export: direct request
+ * - Browser + Next runtime: direct first, then /api/proxy fallback if needed
+ */
+async function fetchViaProxy(url: string, options?: RequestInit): Promise<Response> {
+    if (typeof window === 'undefined') {
+        return ultraFetch(url, options);
+    }
 
-// Blockscout API Config
-const BLOCKSCOUT_API: { [key: string]: string } = {
-    'ETH': 'https://eth.blockscout.com/api',
-    'ARB': 'https://arbitrum.blockscout.com/api',
-    'MATIC': 'https://polygon.blockscout.com/api',
-    'OP': 'https://optimism.blockscout.com/api',
-    'BASE': 'https://base.blockscout.com/api',
-    'BSC': 'https://bsc.blockscout.com/api', // Note: BSC Scan might be different, but Blockscout supports BSC too usually
-    'AVAX': 'https://avalanche.blockscout.com/api' // Check availability
+    try {
+        return await ultraFetch(url, options);
+    } catch (directErr) {
+        // If direct fetch fails (usually CORS in browser), try local proxy when available.
+        let parsedBody: any = undefined;
+        if (options?.body) {
+            try {
+                parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+            } catch {
+                parsedBody = options.body;
+            }
+        }
+
+        try {
+            return await fetch('/api/proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url,
+                    method: options?.method || 'GET',
+                    headers: options?.headers,
+                    body: parsedBody
+                })
+            });
+        } catch {
+            throw directErr;
+        }
+    }
+}
+
+// ============================================================================
+// CHAIN CONFIGURATION - All Ledger & Trezor Supported Chains
+// ============================================================================
+
+export type ChainType =
+    // EVM Chains
+    | 'ETH' | 'ARB' | 'MATIC' | 'OP' | 'BASE' | 'BSC' | 'AVAX' | 'FTM' | 'CELO' | 'CRONOS' | 'GNOSIS' | 'LINEA' | 'SCROLL' | 'ZKSYNC' | 'MANTLE' | 'BLAST'
+    // Non-EVM Chains
+    | 'SOL' | 'BTC' | 'XRP' | 'HBAR' | 'SUI' | 'APT' | 'TON' | 'TRX' | 'NEAR' | 'COSMOS' | 'DOT' | 'ADA' | 'ALGO' | 'XLM' | 'DOGE' | 'LTC' | 'BCH' | 'XTZ' | 'EOS' | 'FIL' | 'VET' | 'EGLD' | 'KAVA' | 'INJ';
+
+export interface ChainConfig {
+    id: ChainType;
+    name: string;
+    symbol: string;
+    decimals: number;
+    addressFormat: 'evm' | 'base58' | 'bech32' | 'custom';
+    addressPrefix?: string;
+    ledgerSupport: boolean;
+    trezorSupport: boolean;
+    chainId?: number;
+    api: {
+        balance: string;
+        history?: string;
+        tokens?: string;
+    };
+    rpc?: string[];
+}
+
+// Comprehensive chain registry
+export const CHAIN_CONFIGS: Record<ChainType, ChainConfig> = {
+    // ===== EVM CHAINS =====
+    ETH: {
+        id: 'ETH', name: 'Ethereum', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 1,
+        api: {
+            balance: 'https://eth.blockscout.com/api',
+            history: 'https://eth.blockscout.com/api',
+            tokens: 'https://eth.blockscout.com/api'
+        },
+        rpc: ['https://eth.llamarpc.com', 'https://rpc.ankr.com/eth']
+    },
+    ARB: {
+        id: 'ARB', name: 'Arbitrum', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 42161,
+        api: { balance: 'https://arbitrum.blockscout.com/api' },
+        rpc: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com']
+    },
+    MATIC: {
+        id: 'MATIC', name: 'Polygon', symbol: 'MATIC', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 137,
+        api: { balance: 'https://polygon.blockscout.com/api' },
+        rpc: ['https://polygon-rpc.com', 'https://polygon.llamarpc.com']
+    },
+    OP: {
+        id: 'OP', name: 'Optimism', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 10,
+        api: { balance: 'https://optimism.blockscout.com/api' },
+        rpc: ['https://mainnet.optimism.io', 'https://optimism.llamarpc.com']
+    },
+    BASE: {
+        id: 'BASE', name: 'Base', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 8453,
+        api: { balance: 'https://base.blockscout.com/api' },
+        rpc: ['https://mainnet.base.org', 'https://base.llamarpc.com']
+    },
+    BSC: {
+        id: 'BSC', name: 'BNB Chain', symbol: 'BNB', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 56,
+        api: { balance: 'https://api.bscscan.com/api' },
+        rpc: ['https://bsc-dataseed.binance.org', 'https://binance.llamarpc.com']
+    },
+    AVAX: {
+        id: 'AVAX', name: 'Avalanche C-Chain', symbol: 'AVAX', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 43114,
+        api: { balance: 'https://api.snowtrace.io/api' },
+        rpc: ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche.llamarpc.com']
+    },
+    FTM: {
+        id: 'FTM', name: 'Fantom', symbol: 'FTM', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 250,
+        api: { balance: 'https://api.ftmscan.com/api' },
+        rpc: ['https://rpc.ftm.tools', 'https://fantom.llamarpc.com']
+    },
+    CELO: {
+        id: 'CELO', name: 'Celo', symbol: 'CELO', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 42220,
+        api: { balance: 'https://api.celoscan.io/api' },
+        rpc: ['https://forno.celo.org']
+    },
+    CRONOS: {
+        id: 'CRONOS', name: 'Cronos', symbol: 'CRO', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 25,
+        api: { balance: 'https://cronos.org/explorer/api' },
+        rpc: ['https://evm.cronos.org']
+    },
+    GNOSIS: {
+        id: 'GNOSIS', name: 'Gnosis Chain', symbol: 'xDAI', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
+        chainId: 100,
+        api: { balance: 'https://gnosis.blockscout.com/api' },
+        rpc: ['https://rpc.gnosischain.com']
+    },
+    LINEA: {
+        id: 'LINEA', name: 'Linea', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 59144,
+        api: { balance: 'https://api.lineascan.build/api' },
+        rpc: ['https://rpc.linea.build']
+    },
+    SCROLL: {
+        id: 'SCROLL', name: 'Scroll', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 534352,
+        api: { balance: 'https://api.scrollscan.com/api' },
+        rpc: ['https://rpc.scroll.io']
+    },
+    ZKSYNC: {
+        id: 'ZKSYNC', name: 'zkSync Era', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 324,
+        api: { balance: 'https://block-explorer-api.mainnet.zksync.io/api' },
+        rpc: ['https://mainnet.era.zksync.io']
+    },
+    MANTLE: {
+        id: 'MANTLE', name: 'Mantle', symbol: 'MNT', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 5000,
+        api: { balance: 'https://explorer.mantle.xyz/api' },
+        rpc: ['https://rpc.mantle.xyz']
+    },
+    BLAST: {
+        id: 'BLAST', name: 'Blast', symbol: 'ETH', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        chainId: 81457,
+        api: { balance: 'https://api.blastscan.io/api' },
+        rpc: ['https://rpc.blast.io']
+    },
+
+    // ===== NON-EVM CHAINS =====
+    SOL: {
+        id: 'SOL', name: 'Solana', symbol: 'SOL', decimals: 9,
+        addressFormat: 'base58', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://api.mainnet-beta.solana.com' }
+    },
+    BTC: {
+        id: 'BTC', name: 'Bitcoin', symbol: 'BTC', decimals: 8,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: true,
+        api: {
+            balance: 'https://blockchain.info/rawaddr',
+            history: 'https://blockchain.info/rawaddr'
+        }
+    },
+    XRP: {
+        id: 'XRP', name: 'XRP Ledger', symbol: 'XRP', decimals: 6,
+        addressFormat: 'custom', addressPrefix: 'r', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://api.xrpscan.com/api/v1/account' }
+    },
+    HBAR: {
+        id: 'HBAR', name: 'Hedera', symbol: 'HBAR', decimals: 8,
+        addressFormat: 'custom', addressPrefix: '0.0.', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://mainnet-public.mirrornode.hedera.com/api/v1/accounts' }
+    },
+    SUI: {
+        id: 'SUI', name: 'Sui', symbol: 'SUI', decimals: 9,
+        addressFormat: 'custom', addressPrefix: '0x', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://fullnode.mainnet.sui.io' }
+    },
+    APT: {
+        id: 'APT', name: 'Aptos', symbol: 'APT', decimals: 8,
+        addressFormat: 'custom', addressPrefix: '0x', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://fullnode.mainnet.aptoslabs.com/v1/accounts' }
+    },
+    TON: {
+        id: 'TON', name: 'TON', symbol: 'TON', decimals: 9,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://toncenter.com/api/v2/getAddressInformation' }
+    },
+    TRX: {
+        id: 'TRX', name: 'Tron', symbol: 'TRX', decimals: 6,
+        addressFormat: 'custom', addressPrefix: 'T', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://api.trongrid.io/v1/accounts' }
+    },
+    NEAR: {
+        id: 'NEAR', name: 'NEAR Protocol', symbol: 'NEAR', decimals: 24,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://rpc.mainnet.near.org' }
+    },
+    COSMOS: {
+        id: 'COSMOS', name: 'Cosmos Hub', symbol: 'ATOM', decimals: 6,
+        addressFormat: 'bech32', addressPrefix: 'cosmos', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://cosmos-rest.publicnode.com/cosmos/bank/v1beta1/balances' }
+    },
+    DOT: {
+        id: 'DOT', name: 'Polkadot', symbol: 'DOT', decimals: 10,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://polkadot.api.subscan.io/api/v2/scan/account/tokens' }
+    },
+    ADA: {
+        id: 'ADA', name: 'Cardano', symbol: 'ADA', decimals: 6,
+        addressFormat: 'bech32', addressPrefix: 'addr', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://cardano-mainnet.blockfrost.io/api/v0/addresses' }
+    },
+    ALGO: {
+        id: 'ALGO', name: 'Algorand', symbol: 'ALGO', decimals: 6,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://mainnet-api.algonode.cloud/v2/accounts' }
+    },
+    XLM: {
+        id: 'XLM', name: 'Stellar', symbol: 'XLM', decimals: 7,
+        addressFormat: 'custom', addressPrefix: 'G', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://horizon.stellar.org/accounts' }
+    },
+    DOGE: {
+        id: 'DOGE', name: 'Dogecoin', symbol: 'DOGE', decimals: 8,
+        addressFormat: 'custom', addressPrefix: 'D', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://dogechain.info/api/v1/address/balance' }
+    },
+    LTC: {
+        id: 'LTC', name: 'Litecoin', symbol: 'LTC', decimals: 8,
+        addressFormat: 'custom', addressPrefix: 'L', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://ltc.blockchair.com/api' }
+    },
+    BCH: {
+        id: 'BCH', name: 'Bitcoin Cash', symbol: 'BCH', decimals: 8,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://rest.bitcoin.com/v2/address/details' }
+    },
+    XTZ: {
+        id: 'XTZ', name: 'Tezos', symbol: 'XTZ', decimals: 6,
+        addressFormat: 'custom', addressPrefix: 'tz', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://api.tzkt.io/v1/accounts' }
+    },
+    EOS: {
+        id: 'EOS', name: 'EOS', symbol: 'EOS', decimals: 4,
+        addressFormat: 'custom', ledgerSupport: true, trezorSupport: true,
+        api: { balance: 'https://eos.greymass.com/v1/chain/get_account' }
+    },
+    FIL: {
+        id: 'FIL', name: 'Filecoin', symbol: 'FIL', decimals: 18,
+        addressFormat: 'custom', addressPrefix: 'f', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://api.filscan.io/api/v1/address' }
+    },
+    VET: {
+        id: 'VET', name: 'VeChain', symbol: 'VET', decimals: 18,
+        addressFormat: 'evm', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://vethor-node.vechain.com/accounts' }
+    },
+    EGLD: {
+        id: 'EGLD', name: 'MultiversX', symbol: 'EGLD', decimals: 18,
+        addressFormat: 'bech32', addressPrefix: 'erd', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://api.multiversx.com/accounts' }
+    },
+    KAVA: {
+        id: 'KAVA', name: 'Kava', symbol: 'KAVA', decimals: 6,
+        addressFormat: 'bech32', addressPrefix: 'kava', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://api.kava.io/cosmos/bank/v1beta1/balances' }
+    },
+    INJ: {
+        id: 'INJ', name: 'Injective', symbol: 'INJ', decimals: 18,
+        addressFormat: 'bech32', addressPrefix: 'inj', ledgerSupport: true, trezorSupport: false,
+        api: { balance: 'https://lcd.injective.network/cosmos/bank/v1beta1/balances' }
+    }
 };
 
-// Fallback RPCs if Blockscout fails or for native balance
-const RPC_CONFIG: { [key: string]: string[] } = {
-    'ETH': ['https://eth.llamarpc.com', 'https://rpc.ankr.com/eth'],
-    'ARB': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com'],
-    'MATIC': ['https://polygon-rpc.com', 'https://polygon.llamarpc.com'],
-    'OP': ['https://mainnet.optimism.io', 'https://optimism.llamarpc.com'],
-    'BASE': ['https://mainnet.base.org', 'https://base.llamarpc.com'],
-    'BSC': ['https://bsc-dataseed.binance.org', 'https://binance.llamarpc.com'],
-    'AVAX': ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche.llamarpc.com']
-};
+// Get chains by hardware wallet support
+export function getSupportedChains(wallet: 'ledger' | 'trezor'): ChainType[] {
+    return Object.values(CHAIN_CONFIGS)
+        .filter(c => wallet === 'ledger' ? c.ledgerSupport : c.trezorSupport)
+        .map(c => c.id);
+}
+
+// EVM chains list for easy access
+export const EVM_CHAINS: ChainType[] = ['ETH', 'ARB', 'MATIC', 'OP', 'BASE', 'BSC', 'AVAX', 'FTM', 'CELO', 'CRONOS', 'GNOSIS', 'LINEA', 'SCROLL', 'ZKSYNC', 'MANTLE', 'BLAST'];
+
+// Legacy compatibility maps
+const BLOCKSCOUT_API: { [key: string]: string } = {};
+const RPC_CONFIG: { [key: string]: string[] } = {};
+
+// Build legacy maps from new config
+EVM_CHAINS.forEach(chain => {
+    const config = CHAIN_CONFIGS[chain];
+    if (config.api.balance) BLOCKSCOUT_API[chain] = config.api.balance;
+    if (config.rpc) RPC_CONFIG[chain] = config.rpc;
+});
+
+function getEvmChainId(chain: ChainType): number | undefined {
+    return CHAIN_CONFIGS[chain]?.chainId;
+}
+
+const RPC_HEALTH_CACHE = new Map<string, { ok: boolean; ts: number }>();
+const RPC_OK_TTL_MS = 5 * 60 * 1000;
+const RPC_FAIL_TTL_MS = 60 * 1000;
+
+async function probeRpc(url: string, chainId?: number): Promise<boolean> {
+    const cached = RPC_HEALTH_CACHE.get(url);
+    if (cached) {
+        const ttl = cached.ok ? RPC_OK_TTL_MS : RPC_FAIL_TTL_MS;
+        if (Date.now() - cached.ts < ttl) return cached.ok;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+        const response = await fetchViaProxy(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
+            signal: controller.signal
+        });
+        const raw = await response.text();
+        if (!raw) return false;
+        let data: any;
+        try {
+            data = JSON.parse(raw);
+        } catch {
+            return false;
+        }
+        if (!data?.result) {
+            RPC_HEALTH_CACHE.set(url, { ok: false, ts: Date.now() });
+            return false;
+        }
+        if (!chainId) {
+            RPC_HEALTH_CACHE.set(url, { ok: true, ts: Date.now() });
+            return true;
+        }
+        const parsed = typeof data.result === 'string' ? parseInt(data.result, 16) : Number(data.result);
+        const ok = Number.isFinite(parsed) && parsed === chainId;
+        RPC_HEALTH_CACHE.set(url, { ok, ts: Date.now() });
+        return ok;
+    } catch {
+        RPC_HEALTH_CACHE.set(url, { ok: false, ts: Date.now() });
+        return false;
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'MATIC' | 'OP' | 'BASE' | 'BSC' | 'AVAX' = 'ETH'): Promise<TokenBalance[]> {
     const balances: TokenBalance[] = [];
@@ -41,10 +399,18 @@ export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'M
     if (apiUrl) {
         try {
             // Fetch Tokens
-            const tokenRes = await fetch(`${apiUrl}?module=account&action=tokenlist&address=${address}`);
-            const tokenData = await tokenRes.json();
+            const tokenRes = await fetchViaProxy(`${apiUrl}?module=account&action=tokenlist&address=${address}`);
+            const tokenRaw = await tokenRes.text();
+            let tokenData: any = null;
+            if (tokenRaw) {
+                try {
+                    tokenData = JSON.parse(tokenRaw);
+                } catch {
+                    tokenData = null;
+                }
+            }
 
-            if (tokenData.status === '1' && Array.isArray(tokenData.result)) {
+            if (tokenData && tokenData.status === '1' && Array.isArray(tokenData.result)) {
                 tokenData.result.forEach((t: any) => {
                     // Filter for meaningful balance
                     if (t.balance && t.decimals && t.symbol) {
@@ -65,10 +431,18 @@ export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'M
             }
 
             // Fetch Native Balance separately if not in token list (it usually isn't)
-            const nativeRes = await fetch(`${apiUrl}?module=account&action=balance&address=${address}`);
-            const nativeData = await nativeRes.json();
+            const nativeRes = await fetchViaProxy(`${apiUrl}?module=account&action=balance&address=${address}`);
+            const nativeRaw = await nativeRes.text();
+            let nativeData: any = null;
+            if (nativeRaw) {
+                try {
+                    nativeData = JSON.parse(nativeRaw);
+                } catch {
+                    nativeData = null;
+                }
+            }
 
-            if (nativeData.status === '1') {
+            if (nativeData && nativeData.status === '1') {
                 const nativeVal = parseFloat(nativeData.result);
                 if (nativeVal > 0) {
                     let symbol = 'ETH';
@@ -95,14 +469,16 @@ export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'M
     const urls = RPC_CONFIG[chain] || RPC_CONFIG['ETH'];
     let provider = null;
     let success = false;
+    const chainId = getEvmChainId(chain);
 
     for (const url of urls) {
         try {
-            provider = new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true });
-            await provider.getBlockNumber();
+            const ok = await probeRpc(url, chainId);
+            if (!ok) continue;
+            provider = new ethers.JsonRpcProvider(url, chainId ? { name: chain, chainId } : undefined, { staticNetwork: true });
             success = true;
             break;
-        } catch (e) { /* ignore */ }
+        } catch (_e) { /* ignore */ }
     }
 
     if (!success || !provider) return [];
@@ -193,7 +569,7 @@ export async function getSolanaPortfolio(address: string): Promise<TokenBalance[
 // Bitcoin
 export async function getBitcoinPortfolio(address: string): Promise<TokenBalance[]> {
     try {
-        const response = await fetch(`https://blockchain.info/rawaddr/${address}`);
+        const response = await ultraFetch(`https://blockchain.info/rawaddr/${address}`);
         if (!response.ok) throw new Error('BTC Fetch Failed');
         const data = await response.json();
         return [{
@@ -201,8 +577,34 @@ export async function getBitcoinPortfolio(address: string): Promise<TokenBalance
             balance: data.final_balance / 1e8
         }];
     } catch (e) {
-        console.warn("BTC Portfolio Error:", e);
-        return [];
+        try {
+            const fallback = await ultraFetch(`https://blockstream.info/api/address/${address}`);
+            if (!fallback.ok) throw new Error('Blockstream BTC Fetch Failed');
+            const data = await fallback.json();
+            const chain = data?.chain_stats;
+            const mempool = data?.mempool_stats;
+            const funded = Number(chain?.funded_txo_sum || 0) + Number(mempool?.funded_txo_sum || 0);
+            const spent = Number(chain?.spent_txo_sum || 0) + Number(mempool?.spent_txo_sum || 0);
+            const sats = Math.max(funded - spent, 0);
+            return [{ symbol: 'BTC', balance: sats / 1e8 }];
+        } catch (fallbackErr) {
+            try {
+                const mempoolRes = await ultraFetch(`https://mempool.space/api/address/${address}`);
+                if (!mempoolRes.ok) throw new Error('Mempool BTC Fetch Failed');
+                const data = await mempoolRes.json();
+                const chain = data?.chain_stats;
+                const mempool = data?.mempool_stats;
+                const funded = Number(chain?.funded_txo_sum || 0) + Number(mempool?.funded_txo_sum || 0);
+                const spent = Number(chain?.spent_txo_sum || 0) + Number(mempool?.spent_txo_sum || 0);
+                const sats = Math.max(funded - spent, 0);
+                return [{ symbol: 'BTC', balance: sats / 1e8 }];
+            } catch (lastErr) {
+                console.warn("BTC Portfolio Error:", e);
+                console.warn("BTC Fallback Error:", fallbackErr);
+                console.warn("BTC Mempool Error:", lastErr);
+                return [];
+            }
+        }
     }
 }
 
@@ -210,7 +612,7 @@ export async function getBitcoinPortfolio(address: string): Promise<TokenBalance
 export async function getHederaPortfolio(address: string): Promise<TokenBalance[]> {
     try {
         // address is account ID like 0.0.12345
-        const response = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${address}`);
+        const response = await ultraFetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${address}`);
         if (!response.ok) {
             console.warn(`HBAR API returned ${response.status} for ${address}`);
             return [];
@@ -262,10 +664,22 @@ export async function getEvmHistory(address: string, chain: string): Promise<any
                         timestamp: parseInt(tx.timeStamp) * 1000,
                         symbol: chain === 'MATIC' ? 'MATIC' : chain === 'BSC' ? 'BNB' : 'ETH',
                         side: tx.from.toLowerCase() === address.toLowerCase() ? 'sell' : 'buy',
+                        type: tx.from.toLowerCase() === address.toLowerCase() ? 'Withdraw' : 'Deposit',
                         price: 0,
                         amount: parseFloat(ethers.formatEther(tx.value)),
                         exchange: chain,
-                        status: 'Confirmed'
+                        status: 'Confirmed',
+                        txHash: tx.hash,
+                        from: tx.from,
+                        to: tx.to,
+                        address: tx.from.toLowerCase() === address.toLowerCase() ? tx.to : tx.from,
+                        chain,
+                        network: chain,
+                        gasUsed: tx.gasUsed ? parseFloat(tx.gasUsed) : undefined,
+                        gasPrice: tx.gasPrice ? parseFloat(tx.gasPrice) : undefined,
+                        fee: tx.gasUsed && tx.gasPrice ? (parseFloat(tx.gasUsed) * parseFloat(tx.gasPrice)) / 1e18 : undefined,
+                        feeAsset: chain === 'MATIC' ? 'MATIC' : chain === 'BSC' ? 'BNB' : 'ETH',
+                        sourceType: 'wallet',
                     });
                 }
             });
@@ -278,10 +692,21 @@ export async function getEvmHistory(address: string, chain: string): Promise<any
                     timestamp: parseInt(tx.timeStamp) * 1000,
                     symbol: tx.tokenSymbol,
                     side: tx.from.toLowerCase() === address.toLowerCase() ? 'sell' : 'buy',
+                    type: tx.from.toLowerCase() === address.toLowerCase() ? 'Withdraw' : 'Deposit',
                     price: 0,
                     amount: parseFloat(tx.value) / Math.pow(10, parseInt(tx.tokenDecimal)),
                     exchange: chain,
-                    status: 'Confirmed'
+                    status: 'Confirmed',
+                    txHash: tx.hash,
+                    from: tx.from,
+                    to: tx.to,
+                    address: tx.from.toLowerCase() === address.toLowerCase() ? tx.to : tx.from,
+                    chain,
+                    network: chain,
+                    tokenContract: tx.contractAddress,
+                    fee: tx.gasUsed && tx.gasPrice ? (parseFloat(tx.gasUsed) * parseFloat(tx.gasPrice)) / 1e18 : undefined,
+                    feeAsset: chain === 'MATIC' ? 'MATIC' : chain === 'BSC' ? 'BNB' : 'ETH',
+                    sourceType: 'wallet',
                 });
             });
         }
@@ -295,7 +720,7 @@ export async function getEvmHistory(address: string, chain: string): Promise<any
 
 export async function getSolanaHistory(address: string): Promise<any[]> {
     try {
-        const response = await fetch('https://api.mainnet-beta.solana.com', {
+        const response = await ultraFetch('https://api.mainnet-beta.solana.com', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -315,10 +740,15 @@ export async function getSolanaHistory(address: string): Promise<any[]> {
                 timestamp: sig.blockTime * 1000,
                 symbol: 'SOL',
                 side: 'transfer',
+                type: 'Transfer',
                 price: 0,
                 amount: 0, // Discovery: getSignatures doesn't give amount
                 exchange: 'Solana',
-                status: sig.confirmationStatus || 'confirmed'
+                status: sig.confirmationStatus || 'confirmed',
+                txHash: sig.signature,
+                chain: 'SOL',
+                network: 'SOL',
+                sourceType: 'wallet',
             }));
         }
         return [];
@@ -328,51 +758,66 @@ export async function getSolanaHistory(address: string): Promise<any[]> {
     }
 }
 
-// Sui
+// Sui - RPC endpoints (public fullnode is rate-limited, use fallbacks)
+const SUI_RPC_ENDPOINTS = [
+    'https://fullnode.mainnet.sui.io',
+    'https://rpc.ankr.com/sui',
+    'https://sui-rpc.publicnode.com',
+];
+
+async function trySuiRpc(address: string): Promise<TokenBalance[]> {
+    const payload = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'suix_getAllBalances',
+        params: [address]
+    };
+
+    for (const endpoint of SUI_RPC_ENDPOINTS) {
+        try {
+            const response = await ultraFetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+
+            if (data.error) {
+                console.warn(`SUI RPC Error (${endpoint}):`, data.error);
+                continue;
+            }
+
+            if (!data.result || !Array.isArray(data.result)) return [];
+
+            return data.result.map((b: any) => {
+                let symbol = 'SUI';
+                if (b.coinType && b.coinType !== '0x2::sui::SUI') {
+                    const parts = b.coinType.split('::');
+                    symbol = (parts[parts.length - 1] || 'SUI').replace(/^[0-9]+_/, '');
+                }
+
+                let balance = 0;
+                try {
+                    const totalBalance = b.totalBalance ?? b.balance ?? '0';
+                    balance = parseFloat(String(totalBalance)) / 1e9;
+                } catch (e) {
+                    console.warn(`Failed to parse SUI balance for ${symbol}:`, e);
+                }
+
+                return { symbol, balance };
+            }).filter((b: { symbol: string; balance: number }) => b.balance > 0);
+        } catch (e) {
+            console.warn(`SUI RPC failed (${endpoint}):`, e);
+            continue;
+        }
+    }
+    return [];
+}
+
 export async function getSuiPortfolio(address: string): Promise<TokenBalance[]> {
     try {
-        const response = await fetch('https://fullnode.mainnet.sui.io', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'suix_getAllBalances',
-                params: [address]
-            })
-        });
-        const data = await response.json();
-
-        // Check for RPC errors
-        if (data.error) {
-            console.warn("SUI RPC Error:", data.error);
-            return [];
-        }
-
-        if (!data.result || !Array.isArray(data.result)) return [];
-
-        return data.result.map((b: any) => {
-            let symbol = 'SUI';
-            if (b.coinType && b.coinType !== '0x2::sui::SUI') {
-                const parts = b.coinType.split('::');
-                symbol = parts[parts.length - 1];
-            }
-
-            // Parse balance safely - totalBalance can be a very large number
-            let balance = 0;
-            try {
-                // SUI uses 9 decimals (1 SUI = 1e9 MIST)
-                const totalBalance = b.totalBalance || '0';
-                balance = parseFloat(totalBalance) / 1e9;
-            } catch (e) {
-                console.warn(`Failed to parse SUI balance for ${symbol}:`, e);
-            }
-
-            return {
-                symbol,
-                balance
-            };
-        }).filter((b: { symbol: string; balance: number }) => b.balance > 0); // Filter out zero balances
+        if (!address || !address.startsWith('0x')) return [];
+        return await trySuiRpc(address);
     } catch (e) {
         console.warn("SUI Portfolio Error:", e);
         return [];
@@ -381,7 +826,9 @@ export async function getSuiPortfolio(address: string): Promise<TokenBalance[]> 
 
 export async function getSuiHistory(address: string): Promise<any[]> {
     try {
-        const response = await fetch('https://fullnode.mainnet.sui.io', {
+        if (!address || !address.startsWith('0x')) return [];
+        const endpoint = SUI_RPC_ENDPOINTS[0];
+        const response = await ultraFetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -399,10 +846,15 @@ export async function getSuiHistory(address: string): Promise<any[]> {
             timestamp: parseInt(tx.timestampMs),
             symbol: 'SUI',
             side: 'sell',
+            type: 'Transfer',
             price: 0,
             amount: 0,
             exchange: 'Sui',
-            status: tx.effects.status.status === 'success' ? 'Confirmed' : 'Failed'
+            status: tx.effects.status.status === 'success' ? 'Confirmed' : 'Failed',
+            txHash: tx.digest,
+            chain: 'SUI',
+            network: 'SUI',
+            sourceType: 'wallet',
         }));
     } catch (e) {
         console.error("SUI History Error:", e);
@@ -411,32 +863,138 @@ export async function getSuiHistory(address: string): Promise<any[]> {
 }
 
 // Aptos
-export async function getAptosPortfolio(address: string): Promise<TokenBalance[]> {
-    try {
-        const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/resources`);
-        if (!response.ok) {
-            console.warn(`Aptos API returned ${response.status} for ${address}`);
-            return [];
-        }
-        const data = await response.json();
+const APTOS_GRAPHQL_URL = 'https://api.mainnet.aptoslabs.com/v1/graphql';
+const APTOS_FULLNODE_URL = 'https://fullnode.mainnet.aptoslabs.com/v1';
 
-        const balances: TokenBalance[] = [];
-        if (Array.isArray(data)) {
-            data.forEach((res: any) => {
-                if (res.type === '0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>') {
-                    try {
-                        const value = res.data?.coin?.value || '0';
-                        const balance = parseFloat(value) / 1e8; // APT uses 8 decimals
-                        if (balance > 0) {
-                            balances.push({ symbol: 'APT', balance });
-                        }
-                    } catch (parseError) {
-                        console.warn('Failed to parse APT balance:', parseError);
+function normalizeAptosAddress(raw: string): string | null {
+    const trimmed = String(raw || '').trim().toLowerCase();
+    if (!trimmed) return null;
+    const prefixed = trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
+    const hex = prefixed.slice(2);
+    if (!/^[0-9a-f]+$/.test(hex)) return null;
+    if (hex.length === 0 || hex.length > 64) return null;
+    return `0x${hex.padStart(64, '0')}`;
+}
+
+function aptosTypeToSymbol(typeValue: string | undefined | null): string {
+    const raw = String(typeValue || '');
+    if (!raw || raw.includes('aptos_coin::AptosCoin')) return 'APT';
+    const parts = raw.split('::').filter(Boolean);
+    return parts[parts.length - 1] || 'APT';
+}
+
+function sanitizeAptosSymbol(raw: string | undefined | null): string | null {
+    if (!raw) return null;
+    const symbol = String(raw).trim().toUpperCase();
+    // Keep native APT always.
+    if (symbol === 'APT') return 'APT';
+    // Filter obvious parser garbage and unsupported symbols.
+    if (symbol.length < 2 || symbol.length > 16) return null;
+    if (!/^[A-Z0-9][A-Z0-9._-]*$/.test(symbol)) return null;
+    // Reject very generic placeholders often returned from type suffixes.
+    if (['COIN', 'TOKEN', 'ASSET'].includes(symbol)) return null;
+    return symbol;
+}
+
+export async function getAptosPortfolio(address: string): Promise<TokenBalance[]> {
+    const normalizedAddress = normalizeAptosAddress(address);
+    if (!normalizedAddress) return [];
+
+    const bySymbol = new Map<string, number>();
+    const addBalance = (rawSymbol: string | undefined | null, rawBalance: number) => {
+        if (!Number.isFinite(rawBalance) || rawBalance <= 0) return;
+        const symbol = sanitizeAptosSymbol(rawSymbol);
+        if (!symbol) return;
+        bySymbol.set(symbol, (bySymbol.get(symbol) || 0) + rawBalance);
+    };
+
+    try {
+        // Supported Aptos indexer table (current_coin_balances is deprecated)
+        const query = `
+            query getAccountBalances($address: String!, $limit: Int!, $offset: Int!) {
+                current_fungible_asset_balances(
+                    where: { owner_address: { _eq: $address } }
+                    limit: $limit
+                    offset: $offset
+                ) {
+                    amount
+                    asset_type
+                    metadata {
+                        symbol
+                        decimals
                     }
                 }
+            }
+        `;
+
+        const PAGE_SIZE = 200;
+        const MAX_PAGES = 10;
+        for (let page = 0; page < MAX_PAGES; page++) {
+            const body = JSON.stringify({
+                query,
+                variables: { address: normalizedAddress, limit: PAGE_SIZE, offset: page * PAGE_SIZE }
             });
+            const response = await ultraFetch(APTOS_GRAPHQL_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body
+            }, 6000);
+
+            if (!response.ok) {
+                console.warn(`Aptos Indexer returned ${response.status} for ${normalizedAddress}`);
+                break;
+            }
+
+            const payload = await response.json().catch(() => null) as any;
+            if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
+                console.warn(`Aptos Indexer GraphQL error for ${normalizedAddress}:`, payload.errors?.[0]?.message || payload.errors?.[0]);
+                break;
+            }
+
+            const rows = Array.isArray(payload?.data?.current_fungible_asset_balances)
+                ? payload.data.current_fungible_asset_balances
+                : [];
+            if (rows.length === 0) break;
+
+            for (const fa of rows) {
+                const amount = parseFloat(String(fa?.amount ?? '0')) || 0;
+                if (amount <= 0) continue;
+                const decimalsRaw = Number(fa?.metadata?.decimals);
+                const decimals = Number.isFinite(decimalsRaw) && decimalsRaw >= 0 && decimalsRaw <= 30 ? decimalsRaw : 8;
+                const balanceValue = amount / Math.pow(10, decimals);
+                if (balanceValue <= 0) continue;
+
+                const symbol =
+                    sanitizeAptosSymbol(fa?.metadata?.symbol) ||
+                    sanitizeAptosSymbol(aptosTypeToSymbol(fa?.asset_type));
+                addBalance(symbol, balanceValue);
+            }
+
+            if (rows.length < PAGE_SIZE) break;
         }
-        return balances;
+
+        // Fallback path: fullnode legacy CoinStore resources (covers wallets where indexer data is delayed/unavailable)
+        if (bySymbol.size === 0) {
+            const resourcesRes = await ultraFetch(`${APTOS_FULLNODE_URL}/accounts/${normalizedAddress}/resources`, {}, 7000);
+            if (resourcesRes.ok) {
+                const resources = await resourcesRes.json().catch(() => []) as any[];
+                if (Array.isArray(resources)) {
+                    for (const r of resources) {
+                        const type = String(r?.type || '');
+                        if (!type.includes('::coin::CoinStore<')) continue;
+                        const lt = type.indexOf('<');
+                        const gt = type.lastIndexOf('>');
+                        if (lt < 0 || gt <= lt) continue;
+                        const coinType = type.slice(lt + 1, gt);
+                        const raw = parseFloat(String(r?.data?.coin?.value ?? '0')) || 0;
+                        if (raw <= 0) continue;
+                        addBalance(aptosTypeToSymbol(coinType), raw / 1e8);
+                    }
+                }
+            }
+        }
+
+        return Array.from(bySymbol.entries()).map(([symbol, balance]) => ({ symbol, balance }));
     } catch (e) {
         console.warn("Aptos Portfolio Error:", e);
         return [];
@@ -445,7 +1003,8 @@ export async function getAptosPortfolio(address: string): Promise<TokenBalance[]
 
 export async function getAptosHistory(address: string): Promise<any[]> {
     try {
-        const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/transactions?limit=50`);
+        const normalizedAddress = normalizeAptosAddress(address) || address;
+        const response = await ultraFetch(`${APTOS_FULLNODE_URL}/accounts/${normalizedAddress}/transactions?limit=50`);
         if (!response.ok) return [];
         const data = await response.json();
 
@@ -454,10 +1013,16 @@ export async function getAptosHistory(address: string): Promise<any[]> {
             timestamp: parseInt(tx.timestamp) / 1000,
             symbol: 'APT',
             side: 'sell',
+            type: 'Transfer',
             price: 0,
             amount: 0,
             exchange: 'Aptos',
-            status: tx.success ? 'Confirmed' : 'Failed'
+            status: tx.success ? 'Confirmed' : 'Failed',
+            txHash: tx.hash,
+            from: tx.sender,
+            chain: 'APT',
+            network: 'APT',
+            sourceType: 'wallet',
         }));
     } catch (e) {
         console.error("Aptos History Error:", e);
@@ -467,24 +1032,54 @@ export async function getAptosHistory(address: string): Promise<any[]> {
 
 // TON
 export async function getTonPortfolio(address: string): Promise<TokenBalance[]> {
+    const balances: TokenBalance[] = [];
+    const encodedAddress = encodeURIComponent(address);
     try {
-        const response = await fetch(`https://toncenter.com/api/v2/getAddressInformation?address=${address}`);
-        const data = await response.json();
-        if (!data.ok || !data.result) return [];
+        // 1. Native TON balance - Use toncenter
+        const nativeRes = await fetchViaProxy(`https://toncenter.com/api/v2/getAddressInformation?address=${encodedAddress}`);
+        const nativeData = await nativeRes.json();
 
-        return [{
-            symbol: 'TON',
-            balance: parseInt(data.result.balance) / 1e9
-        }];
+        if (nativeData.ok && nativeData.result && nativeData.result.balance !== undefined) {
+            balances.push({
+                symbol: 'TON',
+                balance: parseInt(nativeData.result.balance) / 1e9
+            });
+        }
+
+        // 2. Jetton balances (All other tickers) - Use tonapi.io
+        // This fetches all tokens (Jettons) in a single call
+        const jettonRes = await fetchViaProxy(`https://tonapi.io/v2/accounts/${encodedAddress}/jettons`);
+        if (jettonRes.ok) {
+            const jettonData = await jettonRes.json();
+            if (jettonData.balances && Array.isArray(jettonData.balances)) {
+                jettonData.balances.forEach((j: any) => {
+                    const symbol = j.jetton?.symbol;
+                    const rawBalance = j.balance;
+
+                    if (symbol && rawBalance) {
+                        const decimals = j.jetton.decimals || 9;
+                        const balanceValue = parseFloat(rawBalance) / Math.pow(10, decimals);
+                        if (balanceValue > 0) {
+                            balances.push({
+                                symbol: symbol.toUpperCase(),
+                                balance: balanceValue
+                            });
+                        }
+                    }
+                });
+            }
+        }
+
+        return balances;
     } catch (e) {
         console.warn("TON Portfolio Error:", e);
-        return [];
+        return balances; // Return whatever we managed to fetch
     }
 }
 
 export async function getTonHistory(address: string): Promise<any[]> {
     try {
-        const response = await fetch(`https://toncenter.com/api/v2/getTransactions?address=${address}&limit=50`);
+        const response = await fetchViaProxy(`https://toncenter.com/api/v2/getTransactions?address=${address}&limit=50`);
         const data = await response.json();
         if (!data.ok || !data.result) return [];
 
@@ -493,10 +1088,20 @@ export async function getTonHistory(address: string): Promise<any[]> {
             timestamp: tx.utime * 1000,
             symbol: 'TON',
             side: 'transfer',
+            type: 'Transfer',
             price: 0,
             amount: parseInt(tx.in_msg?.value || tx.out_msgs?.[0]?.value || 0) / 1e9,
             exchange: 'TON',
-            status: 'Confirmed'
+            status: 'Confirmed',
+            txHash: tx.transaction_id.hash,
+            from: tx.in_msg?.source,
+            to: tx.in_msg?.destination || tx.out_msgs?.[0]?.destination,
+            address: tx.in_msg?.source || tx.out_msgs?.[0]?.destination,
+            chain: 'TON',
+            network: 'TON',
+            fee: tx.fee ? parseFloat(tx.fee) / 1e9 : undefined,
+            feeAsset: 'TON',
+            sourceType: 'wallet',
         }));
     } catch (e) {
         console.error("TON History Error:", e);
@@ -507,7 +1112,7 @@ export async function getTonHistory(address: string): Promise<any[]> {
 // TRON
 export async function getTronPortfolio(address: string): Promise<TokenBalance[]> {
     try {
-        const response = await fetch(`https://api.trongrid.io/v1/accounts/${address}`);
+        const response = await ultraFetch(`https://api.trongrid.io/v1/accounts/${address}`);
         const data = await response.json();
         if (!data.data || !data.data[0]) return [];
 
@@ -546,7 +1151,7 @@ export async function getTronPortfolio(address: string): Promise<TokenBalance[]>
 
 export async function getTronHistory(address: string): Promise<any[]> {
     try {
-        const response = await fetch(`https://api.trongrid.io/v1/accounts/${address}/transactions?limit=50`);
+        const response = await ultraFetch(`https://api.trongrid.io/v1/accounts/${address}/transactions?limit=50`);
         const data = await response.json();
         if (!data.data) return [];
 
@@ -555,10 +1160,17 @@ export async function getTronHistory(address: string): Promise<any[]> {
             timestamp: tx.block_timestamp,
             symbol: 'TRX',
             side: 'transfer',
+            type: 'Transfer',
             price: 0,
             amount: 0,
             exchange: 'TRON',
-            status: tx.ret?.[0]?.contractRet === 'SUCCESS' ? 'Confirmed' : 'Failed'
+            status: tx.ret?.[0]?.contractRet === 'SUCCESS' ? 'Confirmed' : 'Failed',
+            txHash: tx.txID,
+            from: tx.raw_data?.contract?.[0]?.parameter?.value?.owner_address,
+            to: tx.raw_data?.contract?.[0]?.parameter?.value?.to_address,
+            chain: 'TRX',
+            network: 'TRX',
+            sourceType: 'wallet',
         }));
     } catch (e) {
         console.error("TRON History Error:", e);
@@ -569,7 +1181,7 @@ export async function getTronHistory(address: string): Promise<any[]> {
 // XRP (Ripple)
 export async function getXrpPortfolio(address: string): Promise<TokenBalance[]> {
     try {
-        const response = await fetch(`https://api.xrpscan.com/api/v1/account/${address}`);
+        const response = await ultraFetch(`https://api.xrpscan.com/api/v1/account/${address}`);
         if (!response.ok) {
             console.warn(`XRP API returned ${response.status} for ${address}`);
             return [];
@@ -608,7 +1220,7 @@ export async function getXrpPortfolio(address: string): Promise<TokenBalance[]> 
 
 export async function getXrpHistory(address: string): Promise<any[]> {
     try {
-        const response = await fetch(`https://api.xrpscan.com/api/v1/account/${address}/transactions?limit=50`);
+        const response = await ultraFetch(`https://api.xrpscan.com/api/v1/account/${address}/transactions?limit=50`);
         if (!response.ok) return [];
         const data = await response.json();
 
@@ -619,13 +1231,93 @@ export async function getXrpHistory(address: string): Promise<any[]> {
             timestamp: new Date(tx.date).getTime(),
             symbol: 'XRP',
             side: tx.type === 'Payment' ? 'transfer' : 'other',
+            type: tx.type === 'Payment' ? 'Transfer' : 'Trade',
             price: 0,
             amount: parseFloat(tx.amount?.value || '0'),
             exchange: 'XRP',
-            status: tx.result === 'tesSUCCESS' ? 'Confirmed' : 'Failed'
+            status: tx.result === 'tesSUCCESS' ? 'Confirmed' : 'Failed',
+            txHash: tx.hash,
+            from: tx.Account,
+            to: tx.Destination,
+            chain: 'XRP',
+            network: 'XRP',
+            fee: tx.Fee ? parseFloat(tx.Fee) / 1e6 : undefined,
+            feeAsset: 'XRP',
+            sourceType: 'wallet',
         }));
     } catch (e) {
         console.error("XRP History Error:", e);
+        return [];
+    }
+}
+
+export async function getBitcoinHistory(address: string): Promise<any[]> {
+    try {
+        const response = await ultraFetch(`https://blockchain.info/rawaddr/${address}?limit=50`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        const txs = Array.isArray(data?.txs) ? data.txs : [];
+        return txs.map((tx: any) => {
+            const inputs = Array.isArray(tx.inputs) ? tx.inputs : [];
+            const outs = Array.isArray(tx.out) ? tx.out : [];
+            const sent = inputs.some((i: any) => i?.prev_out?.addr === address);
+            const received = outs.some((o: any) => o?.addr === address);
+            const value = sent
+                ? outs.filter((o: any) => o?.addr !== address).reduce((s: number, o: any) => s + (o?.value || 0), 0)
+                : outs.filter((o: any) => o?.addr === address).reduce((s: number, o: any) => s + (o?.value || 0), 0);
+            const from = inputs[0]?.prev_out?.addr;
+            const to = outs[0]?.addr;
+            return {
+                id: tx.hash,
+                timestamp: (tx.time || 0) * 1000,
+                symbol: 'BTC',
+                side: sent ? 'sell' : 'buy',
+                type: sent ? 'Withdraw' : (received ? 'Deposit' : 'Transfer'),
+                price: 0,
+                amount: (value || 0) / 1e8,
+                exchange: 'BTC',
+                status: 'Confirmed',
+                txHash: tx.hash,
+                from,
+                to,
+                address: sent ? to : from,
+                chain: 'BTC',
+                network: 'BTC',
+                fee: typeof tx.fee === 'number' ? tx.fee / 1e8 : undefined,
+                feeAsset: 'BTC',
+                sourceType: 'wallet',
+            };
+        });
+    } catch (e) {
+        console.warn("BTC History Error:", e);
+        return [];
+    }
+}
+
+export async function getHederaHistory(address: string): Promise<any[]> {
+    try {
+        const response = await ultraFetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id=${address}&limit=50&order=desc`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        const txs = Array.isArray(data?.transactions) ? data.transactions : [];
+        return txs.map((tx: any) => ({
+            id: tx.transaction_id,
+            timestamp: tx.consensus_timestamp ? Number(String(tx.consensus_timestamp).split('.')[0]) * 1000 : Date.now(),
+            symbol: 'HBAR',
+            side: 'transfer',
+            type: 'Transfer',
+            price: 0,
+            amount: 0,
+            exchange: 'HBAR',
+            status: tx.result === 'SUCCESS' ? 'Confirmed' : tx.result,
+            txHash: tx.transaction_hash,
+            chain: 'HBAR',
+            network: 'HBAR',
+            feeAsset: 'HBAR',
+            sourceType: 'wallet',
+        }));
+    } catch (e) {
+        console.warn("HBAR History Error:", e);
         return [];
     }
 }
@@ -634,4 +1326,427 @@ export async function getXrpHistory(address: string): Promise<any[]> {
 interface TokenBalance {
     symbol: string;
     balance: number;
+}
+
+// ============================================================================
+// ADDITIONAL CHAIN FETCHERS - Ledger/Trezor Supported Chains
+// ============================================================================
+
+// NEAR Protocol
+export async function getNearPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('near');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch('https://rpc.mainnet.near.org', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 'dontcare', method: 'query',
+                params: { request_type: 'view_account', finality: 'final', account_id: address }
+            })
+        });
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.result?.amount) {
+            const balance = parseFloat(data.result.amount) / 1e24;
+            if (balance > 0) return [{ symbol: 'NEAR', balance }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("NEAR Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Cosmos Hub (ATOM)
+export async function getCosmosPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('cosmos');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://cosmos-rest.publicnode.com/cosmos/bank/v1beta1/balances/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        const balances: TokenBalance[] = [];
+        if (data.balances && Array.isArray(data.balances)) {
+            data.balances.forEach((b: any) => {
+                const symbol = 'ATOM';
+                if (b.denom === 'uatom') {
+                    balances.push({ symbol, balance: parseFloat(b.amount) / 1e6 });
+                }
+            });
+        }
+        return balances;
+    } catch (e) {
+        console.warn("Cosmos Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Polkadot
+export async function getPolkadotPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('polkadot');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch('https://polkadot.api.subscan.io/api/v2/scan/account/tokens', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address })
+        });
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.data?.native) {
+            const balance = parseFloat(data.data.native[0]?.balance || '0') / 1e10;
+            if (balance > 0) return [{ symbol: 'DOT', balance }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("Polkadot Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Algorand
+export async function getAlgorandPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('algorand');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://mainnet-api.algonode.cloud/v2/accounts/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        const balances: TokenBalance[] = [];
+        if (data.amount) {
+            balances.push({ symbol: 'ALGO', balance: data.amount / 1e6 });
+        }
+        // ASAs (Algorand Standard Assets)
+        if (data.assets && Array.isArray(data.assets)) {
+            data.assets.forEach((a: any) => {
+                if (a.amount > 0) {
+                    balances.push({ symbol: `ASA-${a['asset-id']}`, balance: a.amount / 1e6 });
+                }
+            });
+        }
+        return balances;
+    } catch (e) {
+        console.warn("Algorand Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Stellar (XLM)
+export async function getStellarPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('stellar');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://horizon.stellar.org/accounts/${address}`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        const balances: TokenBalance[] = [];
+        if (data.balances && Array.isArray(data.balances)) {
+            data.balances.forEach((b: any) => {
+                if (b.asset_type === 'native') {
+                    balances.push({ symbol: 'XLM', balance: parseFloat(b.balance) });
+                } else if (b.balance && parseFloat(b.balance) > 0) {
+                    balances.push({ symbol: b.asset_code || 'Unknown', balance: parseFloat(b.balance) });
+                }
+            });
+        }
+        return balances;
+    } catch (e) {
+        console.warn("Stellar Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Dogecoin
+export async function getDogePortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('doge');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://dogechain.info/api/v1/address/balance/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.success && data.balance) {
+            return [{ symbol: 'DOGE', balance: parseFloat(data.balance) }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("Doge Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Litecoin
+export async function getLitecoinPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('litecoin');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://api.blockcypher.com/v1/ltc/main/addrs/${address}/balance`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.balance !== undefined) {
+            return [{ symbol: 'LTC', balance: data.balance / 1e8 }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("Litecoin Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Tezos
+export async function getTezosPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('tezos');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://api.tzkt.io/v1/accounts/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.balance) {
+            return [{ symbol: 'XTZ', balance: data.balance / 1e6 }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("Tezos Portfolio Error:", e);
+        return [];
+    }
+}
+
+// MultiversX (Elrond)
+export async function getMultiversXPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('multiversx');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://api.multiversx.com/accounts/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.balance) {
+            return [{ symbol: 'EGLD', balance: parseFloat(data.balance) / 1e18 }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("MultiversX Portfolio Error:", e);
+        return [];
+    }
+}
+
+// VeChain
+export async function getVeChainPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('vechain');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://vethor-node.vechain.com/accounts/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        const balances: TokenBalance[] = [];
+        if (data.balance) {
+            balances.push({ symbol: 'VET', balance: parseFloat(data.balance) / 1e18 });
+        }
+        if (data.energy) {
+            balances.push({ symbol: 'VTHO', balance: parseFloat(data.energy) / 1e18 });
+        }
+        return balances;
+    } catch (e) {
+        console.warn("VeChain Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Kava
+export async function getKavaPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('kava');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://api.kava.io/cosmos/bank/v1beta1/balances/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        const balances: TokenBalance[] = [];
+        if (data.balances && Array.isArray(data.balances)) {
+            data.balances.forEach((b: any) => {
+                if (b.denom === 'ukava') {
+                    balances.push({ symbol: 'KAVA', balance: parseFloat(b.amount) / 1e6 });
+                }
+            });
+        }
+        return balances;
+    } catch (e) {
+        console.warn("Kava Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Injective
+export async function getInjectivePortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('injective');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch(`https://lcd.injective.network/cosmos/bank/v1beta1/balances/${address}`);
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        const balances: TokenBalance[] = [];
+        if (data.balances && Array.isArray(data.balances)) {
+            data.balances.forEach((b: any) => {
+                if (b.denom === 'inj') {
+                    balances.push({ symbol: 'INJ', balance: parseFloat(b.amount) / 1e18 });
+                }
+            });
+        }
+        return balances;
+    } catch (e) {
+        console.warn("Injective Portfolio Error:", e);
+        return [];
+    }
+}
+
+// Filecoin
+export async function getFilecoinPortfolio(address: string): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker('filecoin');
+    const start = Date.now();
+    try {
+        const response = await ultraFetch('https://api.node.glif.io/rpc/v0', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'Filecoin.WalletBalance',
+                params: [address]
+            })
+        });
+        const data = await response.json();
+        tracker.add(Date.now() - start);
+
+        if (data.result) {
+            const balance = parseFloat(data.result) / 1e18;
+            if (balance > 0) return [{ symbol: 'FIL', balance }];
+        }
+        return [];
+    } catch (e) {
+        console.warn("Filecoin Portfolio Error:", e);
+        return [];
+    }
+}
+
+// ============================================================================
+// UNIFIED CHAIN FETCHER - Routes to correct fetcher based on chain type
+// ============================================================================
+
+export async function getChainPortfolio(address: string, chain: ChainType): Promise<TokenBalance[]> {
+    const tracker = getLatencyTracker(chain.toLowerCase());
+    const start = Date.now();
+
+    try {
+        let result: TokenBalance[] = [];
+
+        // Route to appropriate fetcher
+        if (EVM_CHAINS.includes(chain)) {
+            result = await getEvmPortfolio(address, chain as any);
+        } else {
+            switch (chain) {
+                case 'SOL': result = await getSolanaPortfolio(address); break;
+                case 'BTC': result = await getBitcoinPortfolio(address); break;
+                case 'XRP': result = await getXrpPortfolio(address); break;
+                case 'HBAR': result = await getHederaPortfolio(address); break;
+                case 'SUI': result = await getSuiPortfolio(address); break;
+                case 'APT': result = await getAptosPortfolio(address); break;
+                case 'TON': result = await getTonPortfolio(address); break;
+                case 'TRX': result = await getTronPortfolio(address); break;
+                case 'NEAR': result = await getNearPortfolio(address); break;
+                case 'COSMOS': result = await getCosmosPortfolio(address); break;
+                case 'DOT': result = await getPolkadotPortfolio(address); break;
+                case 'ALGO': result = await getAlgorandPortfolio(address); break;
+                case 'XLM': result = await getStellarPortfolio(address); break;
+                case 'DOGE': result = await getDogePortfolio(address); break;
+                case 'LTC': result = await getLitecoinPortfolio(address); break;
+                case 'XTZ': result = await getTezosPortfolio(address); break;
+                case 'EGLD': result = await getMultiversXPortfolio(address); break;
+                case 'VET': result = await getVeChainPortfolio(address); break;
+                case 'KAVA': result = await getKavaPortfolio(address); break;
+                case 'INJ': result = await getInjectivePortfolio(address); break;
+                case 'FIL': result = await getFilecoinPortfolio(address); break;
+                default:
+                    console.warn(`No fetcher for chain: ${chain}`);
+            }
+        }
+
+        tracker.add(Date.now() - start);
+        return result;
+    } catch (e) {
+        console.warn(`Chain ${chain} portfolio error:`, e);
+        return [];
+    }
+}
+
+// ============================================================================
+// PARALLEL MULTI-CHAIN FETCHER - Fetch all chains for a wallet in parallel
+// ============================================================================
+
+export interface MultiChainBalance {
+    chain: ChainType;
+    balances: TokenBalance[];
+    latencyMs: number;
+    error?: string;
+}
+
+export async function getAllChainBalances(
+    addresses: { chain: ChainType; address: string }[]
+): Promise<MultiChainBalance[]> {
+    const results = await Promise.all(
+        addresses.map(async ({ chain, address }) => {
+            const start = Date.now();
+            try {
+                const balances = await getChainPortfolio(address, chain);
+                return {
+                    chain,
+                    balances,
+                    latencyMs: Date.now() - start
+                };
+            } catch (e) {
+                return {
+                    chain,
+                    balances: [],
+                    latencyMs: Date.now() - start,
+                    error: e instanceof Error ? e.message : 'Unknown error'
+                };
+            }
+        })
+    );
+
+    return results;
+}
+
+// Fetch all chains for a single EVM address (same address works on all EVM chains)
+export async function getAllEvmBalances(address: string): Promise<MultiChainBalance[]> {
+    return getAllChainBalances(
+        EVM_CHAINS.map(chain => ({ chain, address }))
+    );
+}
+
+// Get transaction history for a chain
+export async function getChainHistory(address: string, chain: ChainType): Promise<any[]> {
+    if (EVM_CHAINS.includes(chain)) {
+        return getEvmHistory(address, chain);
+    }
+
+    switch (chain) {
+        case 'SOL': return getSolanaHistory(address);
+        case 'SUI': return getSuiHistory(address);
+        case 'APT': return getAptosHistory(address);
+        case 'TON': return getTonHistory(address);
+        case 'TRX': return getTronHistory(address);
+        case 'XRP': return getXrpHistory(address);
+        default:
+            console.warn(`No history fetcher for chain: ${chain}`);
+            return [];
+    }
 }

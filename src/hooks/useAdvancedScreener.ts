@@ -36,7 +36,10 @@ export function useAdvancedScreener(symbols: string[]) {
             }
 
             // Real-ish Volatility: 24h change magnitude is a good proxy for relative volatility
-            const vol24h = Math.abs(stats.priceChange1h * 4) + (Math.random() * 0.5); // Derived from 1h activity
+            // Use deterministic jitter from symbol hash instead of Math.random() (impure in render)
+            const symbolHash = symbol.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+            const jitter = (Math.abs(symbolHash) % 50) / 100; // 0.00 - 0.49, stable per symbol
+            const vol24h = Math.abs(stats.priceChange1h * 4) + jitter; // Derived from 1h activity
 
             // RVOL: 24h Volume compared to a "baseline" 
             // Since we don't have historical average volume, we'll use a logarithmic scale of volume 

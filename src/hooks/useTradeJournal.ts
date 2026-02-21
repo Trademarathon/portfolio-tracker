@@ -91,7 +91,7 @@ export function useTradeJournal() {
 
         // Note: To calculate actual P&L, we'd need to join with trade data
         // For now, we just count tagged trades per strategy
-        annotations.forEach(ann => {
+        annotations.forEach(_ann => {
             // Placeholder: In real implementation, lookup trade P&L
             // For now, just increment count
             // This would be enhanced when integrating with usePortfolioData

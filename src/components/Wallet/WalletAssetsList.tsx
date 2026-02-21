@@ -16,11 +16,11 @@ interface WalletAssetsListProps {
     className?: string; // Allow styling from parent
 }
 
-export function WalletAssetsList({ assets, connections, selectedAssetSymbol, onAssetSelect, className }: WalletAssetsListProps) {
-
+export function WalletAssetsList({ assets: assetsProp, connections, selectedAssetSymbol, onAssetSelect, className }: WalletAssetsListProps) {
+    const assets = Array.isArray(assetsProp) ? assetsProp : [];
     // Sort assets by value desc
     const sortedAssets = useMemo(() => {
-        return [...assets].sort((a, b) => b.valueUsd - a.valueUsd);
+        return [...assets].sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
     }, [assets]);
 
     return (

@@ -2,6 +2,7 @@
 
 import { Transaction } from '@/lib/api/types';
 import { useMemo } from 'react';
+import { StatCard } from '@/components/ui/StatCard';
 
 interface TradingStatsProps {
     transactions: Transaction[];
@@ -87,12 +88,12 @@ export function TradingStats({ transactions }: TradingStatsProps) {
             <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Performance</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    <StatCard label="Net PnL" value={stats.netPnl} isCurrency color={stats.netPnl >= 0 ? 'text-green-400' : 'text-red-400'} />
-                    <StatCard label="Win Rate" value={stats.winRate} suffix="%" />
-                    <StatCard label="Profit Factor" value={stats.profitFactor} decimals={2} />
-                    <StatCard label="Avg Win" value={stats.avgWin} isCurrency className="text-green-400" />
-                    <StatCard label="Avg Loss" value={stats.avgLoss} isCurrency className="text-red-400" />
-                    <StatCard label="Best Pair" value={stats.bestPair} />
+                    <StatCard variant="simple" label="Net PnL" value={stats.netPnl} format="currency" valueClassName={stats.netPnl >= 0 ? 'text-green-400' : 'text-red-400'} />
+                    <StatCard variant="simple" label="Win Rate" value={stats.winRate} format="number" suffix="%" decimals={0} />
+                    <StatCard variant="simple" label="Profit Factor" value={stats.profitFactor} decimals={2} />
+                    <StatCard variant="simple" label="Avg Win" value={stats.avgWin} format="currency" valueClassName="text-green-400" />
+                    <StatCard variant="simple" label="Avg Loss" value={stats.avgLoss} format="currency" valueClassName="text-red-400" />
+                    <StatCard variant="simple" label="Best Pair" value={stats.bestPair} />
                 </div>
             </div>
 
@@ -100,9 +101,9 @@ export function TradingStats({ transactions }: TradingStatsProps) {
             <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Trading Fees</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <StatCard label="Maker Fees" value={stats.makerFees} isCurrency className="text-emerald-400" />
-                    <StatCard label="Taker Fees" value={stats.takerFees} isCurrency className="text-orange-400" />
-                    <StatCard label="Total Trading Fees" value={(stats.makerFees || 0) + (stats.takerFees || 0)} isCurrency className="text-red-400" />
+                    <StatCard variant="simple" label="Maker Fees" value={stats.makerFees} format="currency" valueClassName="text-emerald-400" />
+                    <StatCard variant="simple" label="Taker Fees" value={stats.takerFees} format="currency" valueClassName="text-orange-400" />
+                    <StatCard variant="simple" label="Total Trading Fees" value={(stats.makerFees || 0) + (stats.takerFees || 0)} format="currency" valueClassName="text-red-400" />
                 </div>
             </div>
 
@@ -110,8 +111,8 @@ export function TradingStats({ transactions }: TradingStatsProps) {
             <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Network & Transaction Fees</h3>
                 <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
-                    <StatCard label="Gas/Network Fees" value={stats.networkFees} isCurrency className="text-blue-400" />
-                    <StatCard label="Funding PnL" value={stats.fundingPnL} isCurrency color={stats.fundingPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
+                    <StatCard variant="simple" label="Gas/Network Fees" value={stats.networkFees} format="currency" valueClassName="text-blue-400" />
+                    <StatCard variant="simple" label="Funding PnL" value={stats.fundingPnL} format="currency" valueClassName={stats.fundingPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
                 </div>
             </div>
 
@@ -120,47 +121,30 @@ export function TradingStats({ transactions }: TradingStatsProps) {
                 <h3 className="text-sm font-medium text-gray-500 mb-2 uppercase tracking-wider">Total Fees Overview</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <StatCard
+                        variant="simple"
                         label="Total Fees Paid"
                         value={stats.makerFees + stats.takerFees + stats.networkFees}
-                        isCurrency
-                        className="text-red-500 text-2xl font-extrabold"
+                        format="currency"
+                        valueClassName="text-red-500 text-2xl font-extrabold"
                     />
                     <StatCard
+                        variant="simple"
                         label="Net After Fees"
                         value={stats.netPnl - (stats.makerFees + stats.takerFees + stats.networkFees)}
-                        isCurrency
-                        color={(stats.netPnl - (stats.makerFees + stats.takerFees + stats.networkFees)) >= 0 ? 'text-green-400' : 'text-red-400'}
-                        className="text-2xl font-extrabold"
+                        format="currency"
+                        valueClassName={`${(stats.netPnl - (stats.makerFees + stats.takerFees + stats.networkFees)) >= 0 ? 'text-green-400' : 'text-red-400'} text-2xl font-extrabold`}
                     />
                     <StatCard
+                        variant="simple"
                         label="Fee Impact on PnL"
                         value={stats.netPnl !== 0 ? ((stats.makerFees + stats.takerFees + stats.networkFees) / Math.abs(stats.netPnl) * 100) : 0}
+                        format="number"
                         suffix="%"
                         decimals={1}
-                        className="text-yellow-400"
+                        valueClassName="text-yellow-400"
                     />
                 </div>
             </div>
-        </div>
-    );
-}
-
-function StatCard({ label, value, isCurrency, suffix = '', color, decimals = 0, className = '' }: any) {
-    let displayValue = value;
-    if (typeof value === 'number') {
-        if (isCurrency) {
-            displayValue = value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 });
-        } else {
-            displayValue = value.toFixed(decimals);
-        }
-    }
-
-    return (
-        <div className="bg-[#1E2026] rounded-xl border border-[#2B2F36] p-4 flex flex-col justify-between">
-            <span className="text-xs text-gray-500 font-medium uppercase">{label}</span>
-            <span className={`text-xl font-bold mt-1 ${color || 'text-gray-100'} ${className}`}>
-                {displayValue}{suffix}
-            </span>
         </div>
     );
 }

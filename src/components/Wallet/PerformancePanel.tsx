@@ -49,7 +49,7 @@ export function PerformancePanel({ transactions, selectedAsset }: PerformancePan
         }, {} as Record<string, number>);
 
         // Convert to array
-        let data = Object.entries(aggregated).map(([date, value]) => ({ date, value }));
+        const data = Object.entries(aggregated).map(([date, value]) => ({ date, value }));
 
         // If empty, return placeholder
         if (data.length === 0) return [];

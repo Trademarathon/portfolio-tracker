@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { WebSocketMessage } from './websocket-types';
+import { WS_ENDPOINTS } from './websocket-endpoints';
 
 type WalletUpdateHandler = (message: WebSocketMessage) => void;
 
@@ -8,9 +9,13 @@ interface WalletMonitor {
     address: string;
     chain: string;
     ws?: WebSocket;
-    provider?: any;
+    provider?: unknown;
     unsubscribe?: () => void;
 }
+
+const RPC_HEALTH_CACHE = new Map<string, { ok: boolean; ts: number }>();
+const RPC_OK_TTL_MS = 5 * 60 * 1000;
+const RPC_FAIL_TTL_MS = 60 * 1000;
 
 export class WalletWebSocketManager {
     private monitors: Map<string, WalletMonitor> = new Map();
@@ -54,18 +59,96 @@ export class WalletWebSocketManager {
             'AVAX': 'https://api.avax.network/ext/bc/C/rpc',
             'BSC': 'https://bsc-dataseed.binance.org'
         };
+        const chainIds: { [key: string]: number } = {
+            'ETH': 1,
+            'ARB': 42161,
+            'MATIC': 137,
+            'OP': 10,
+            'BASE': 8453,
+            'AVAX': 43114,
+            'BSC': 56
+        };
 
         const rpcUrl = rpcUrls[chain] || rpcUrls['ETH'];
+        const chainId = chainIds[chain] || chainIds['ETH'];
+
+        const probeRpc = async (url: string, expectedChainId: number): Promise<boolean> => {
+            const cached = RPC_HEALTH_CACHE.get(url);
+            if (cached) {
+                const ttl = cached.ok ? RPC_OK_TTL_MS : RPC_FAIL_TTL_MS;
+                if (Date.now() - cached.ts < ttl) return cached.ok;
+            }
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 3500);
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
+                    signal: controller.signal
+                });
+                const raw = await response.text();
+                if (!raw) return false;
+                let data: any;
+                try {
+                    data = JSON.parse(raw);
+                } catch {
+                    return false;
+                }
+                if (!data?.result) {
+                    RPC_HEALTH_CACHE.set(url, { ok: false, ts: Date.now() });
+                    return false;
+                }
+                const parsed = typeof data.result === 'string' ? parseInt(data.result, 16) : Number(data.result);
+                const ok = Number.isFinite(parsed) && parsed === expectedChainId;
+                RPC_HEALTH_CACHE.set(url, { ok, ts: Date.now() });
+                return ok;
+            } catch {
+                RPC_HEALTH_CACHE.set(url, { ok: false, ts: Date.now() });
+                return false;
+            } finally {
+                clearTimeout(timer);
+            }
+        };
+
+        const rpcOk = await probeRpc(rpcUrl, chainId);
+        if (!rpcOk) {
+            console.warn(`[EVM Monitor] RPC preflight failed (${chain}).`);
+            return;
+        }
         // Use JsonRpcProvider instead of WebSocketProvider for better stability with public nodes
         // It uses polling for events which is more reliable than WSS on free tiers
-        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const provider = new ethers.JsonRpcProvider(rpcUrl, { name: chain, chainId }, { staticNetwork: true });
+        provider.pollingInterval = 15000;
         // Add error listener to prevent unhandled 'error' events
-        // @ts-ignore - ethers v6 EventEmitter
-        provider.on('error', (error: any) => {
+        (provider as unknown as { on: (event: string, cb: (error: unknown) => void) => void }).on('error', (error: unknown) => {
             console.warn(`[EVM Monitor] Provider Error (${chain}):`, error);
         });
 
+        const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+            let timer: ReturnType<typeof setTimeout> | null = null;
+            return new Promise<T>((resolve, reject) => {
+                timer = setTimeout(() => reject(new Error('RPC timeout')), ms);
+                promise
+                    .then(resolve)
+                    .catch(reject)
+                    .finally(() => {
+                        if (timer) clearTimeout(timer);
+                    });
+            });
+        };
+
         const monitorId = `${chain}_${address}`;
+        try {
+            await withTimeout(provider.getBlockNumber(), 6000);
+        } catch (error) {
+            console.warn(`[EVM Monitor] RPC not reachable (${chain}):`, error);
+            provider.removeAllListeners();
+            if (provider.destroy) {
+                provider.destroy();
+            }
+            return;
+        }
 
         // Subscribe to new blocks to check balance changes
         provider.on('block', async (blockNumber) => {
@@ -185,113 +268,128 @@ export class WalletWebSocketManager {
         }
     }
 
-    // Bitcoin Wallet Monitor
+    // Bitcoin Wallet Monitor (with reconnection)
     private async monitorBitcoin(address: string, name: string) {
-        const ws = new WebSocket('wss://ws.blockchain.info/inv');
         const monitorId = `BTC_${address}`;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 10;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        let currentWs: WebSocket | null = null;
+        let stopped = false;
 
-        ws.onopen = () => {
-            console.log(`[Bitcoin Monitor] Connected for address: ${address}`);
-            // Subscribe to address
-            ws.send(JSON.stringify({
-                op: 'addr_sub',
-                addr: address
-            }));
+        const connect = () => {
+            if (stopped) return;
+            const ws = new WebSocket(WS_ENDPOINTS.blockchainInfo.ws);
+            currentWs = ws;
+
+            ws.onopen = () => {
+                console.log(`[Bitcoin Monitor] Connected for address: ${address}`);
+                reconnectAttempts = 0;
+                ws.send(JSON.stringify({ op: 'addr_sub', addr: address }));
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data) as Record<string, unknown>;
+                    if (msg.op === 'utx') {
+                        const tx = (msg.x || {}) as Record<string, unknown>;
+                        const outs = (tx.out as unknown[]) || [];
+                        const isIncoming = outs.some((o) => (o as Record<string, unknown>).addr === address);
+                        this.onUpdate({
+                            source: name,
+                            connectionId: monitorId,
+                            type: 'blockchain',
+                            data: {
+                                chain: 'BTC',
+                                address,
+                        transaction: {
+                            hash: String(tx.hash || ''),
+                            value: outs.reduce((s: number, o: unknown) => {
+                                const ro = o as Record<string, unknown>;
+                                return ro.addr === address ? s + Number(ro.value || 0) : s;
+                            }, 0) / 1e8,
+                            type: isIncoming ? 'incoming' : 'outgoing'
+                        }
+                            },
+                            timestamp: Date.now()
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`[Bitcoin Monitor] Parse error:`, e);
+                }
+            };
+
+            ws.onerror = () => {
+                console.warn(`[Bitcoin Monitor] WebSocket error for ${address}`);
+            };
+
+            ws.onclose = () => {
+                currentWs = null;
+                console.log(`[Bitcoin Monitor] Disconnected for address: ${address}`);
+                if (!stopped && reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    const delay = Math.min(2000 * Math.pow(2, reconnectAttempts - 1), 60000);
+                    reconnectTimer = setTimeout(connect, delay);
+                }
+            };
         };
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
+        connect();
+        this.monitors.set(monitorId, {
+            address,
+            chain: 'BTC',
+            unsubscribe: () => {
+                stopped = true;
+                if (reconnectTimer) clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+                if (currentWs) {
+                    currentWs.close();
+                    currentWs = null;
+                }
+            }
+        });
+    }
 
-            if (data.op === 'utx') {
-                // New unconfirmed transaction
-                const tx = data.x;
-                const isIncoming = tx.out.some((output: any) => output.addr === address);
-                const isOutgoing = tx.inputs.some((input: any) => input.prev_out?.addr === address);
+    // Hedera (HBAR) Wallet Monitor - uses polling (Mirror Node REST API)
+    private async monitorHedera(address: string, name: string) {
+        const monitorId = `HBAR_${address}`;
+        const MIRROR_URL = 'https://mainnet.mirrornode.hedera.com';
+        const accountId = /^0\.0\.\d+$/.test(address) ? address : `0.0.${address}`;
 
+        const fetchBalance = async () => {
+            try {
+                const res = await fetch(`${MIRROR_URL}/api/v1/accounts/${accountId}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const balance = data.balance?.balance ?? 0;
                 this.onUpdate({
                     source: name,
                     connectionId: monitorId,
                     type: 'blockchain',
                     data: {
-                        chain: 'BTC',
+                        chain: 'HBAR',
                         address,
-                        transaction: {
-                            hash: tx.hash,
-                            value: tx.out.reduce((sum: number, out: any) =>
-                                out.addr === address ? sum + out.value : sum, 0) / 1e8,
-                            type: isIncoming ? 'incoming' : 'outgoing'
-                        }
+                        balance: Number(balance) / 1e8,
+                        accountId
                     },
                     timestamp: Date.now()
                 });
+            } catch (e) {
+                console.warn(`[Hedera Monitor] Poll error:`, e);
             }
         };
 
-        ws.onerror = (error) => {
-            console.warn(`[Bitcoin Monitor] WebSocket error:`, error);
-        };
-
-        ws.onclose = () => {
-            console.log(`[Bitcoin Monitor] Disconnected for address: ${address}`);
-            // TODO: Implement reconnection logic
-        };
-
-        this.monitors.set(monitorId, {
-            address,
-            chain: 'BTC',
-            ws,
-            unsubscribe: () => {
-                ws.close();
-            }
-        });
-    }
-
-    // Hedera (HBAR) Wallet Monitor
-    private async monitorHedera(address: string, name: string) {
-        // Note: Hedera uses account IDs like "0.0.123456", not traditional addresses
-        // This is a simplified implementation - production would need proper Hedera SDK
-        const ws = new WebSocket('wss://mainnet.mirrornode.hedera.com/v1/topics/messages');
-        const monitorId = `HBAR_${address}`;
-
-        ws.onopen = () => {
-            console.log(`[Hedera Monitor] Connected for account: ${address}`);
-            // Subscribe to account updates
-            // Note: Actual implementation would need Hedera Mirror Node REST API polling
-            // or Hedera Consensus Service topic subscription
-        };
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-
-            this.onUpdate({
-                source: name,
-                connectionId: monitorId,
-                type: 'blockchain',
-                data: {
-                    chain: 'HBAR',
-                    address,
-                    message: data
-                },
-                timestamp: Date.now()
-            });
-        };
-
-        ws.onerror = (error) => {
-            console.warn(`[Hedera Monitor] WebSocket error:`, error);
-        };
-
-        ws.onclose = () => {
-            console.log(`[Hedera Monitor] Disconnected for account: ${address}`);
-        };
+        await fetchBalance();
+        const intervalId = setInterval(fetchBalance, 30000);
 
         this.monitors.set(monitorId, {
             address,
             chain: 'HBAR',
-            ws,
             unsubscribe: () => {
-                ws.close();
+                clearInterval(intervalId);
             }
         });
+        console.log(`[Hedera Monitor] Started polling for account: ${accountId}`);
     }
 
     public stopMonitoring(address: string, chain: string) {
@@ -306,7 +404,7 @@ export class WalletWebSocketManager {
     }
 
     public stopAll() {
-        for (const [id, monitor] of this.monitors.entries()) {
+        for (const [_id, monitor] of this.monitors.entries()) {
             if (monitor.unsubscribe) {
                 monitor.unsubscribe();
             }

@@ -32,6 +32,7 @@ export const TOKEN_METADATA: Record<string, { name: string; logo?: string; color
     ETC: { name: "Ethereum Classic", color: "#328332" },
     FIL: { name: "Filecoin", color: "#0090FF" },
     HYPE: { name: "Hyperliquid", color: "#00D9FF" },
+    HL_ACCOUNT: { name: "Hyperliquid Account", color: "#00D9FF" },
     TIA: { name: "Celestia", color: "#7B2BF9" },
     STX: { name: "Stacks", color: "#5546FF" },
     ICP: { name: "Internet Computer", color: "#29ABE2" },
@@ -174,7 +175,8 @@ export const TOKEN_METADATA: Record<string, { name: string; logo?: string; color
 
 // Normalize symbol to standard format
 export function normalizeSymbol(symbol: string): string {
-    let s = symbol.toUpperCase().trim();
+    if (!symbol) return 'UNKNOWN';
+    let s = String(symbol).toUpperCase().trim();
 
     // Remove common suffixes
     s = s.replace(/\/USDT$/i, '');

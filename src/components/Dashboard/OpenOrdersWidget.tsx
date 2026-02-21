@@ -8,6 +8,7 @@ import { TokenIcon } from '@/components/ui/TokenIcon';
 import { cn } from '@/lib/utils';
 import { ListOrdered, TrendingUp, TrendingDown, Clock, X } from 'lucide-react';
 import { getTokenName } from '@/lib/token-metadata';
+import { normalizeSymbol } from '@/lib/utils/normalization';
 
 interface Order {
     id: string;
@@ -51,7 +52,7 @@ export function OpenOrdersWidget({ spotOrders, perpOrders = [], prices, onCancel
     }, [activeTab, spotOrders, perpOrders]);
 
     const getDistancePercent = (order: Order): number => {
-        const symbol = order.symbol.replace('/USDT', '').replace('-PERP', '');
+        const symbol = normalizeSymbol((order as unknown as { rawSymbol?: string }).rawSymbol || order.symbol);
         const currentPrice = prices[symbol] || 0;
         if (currentPrice === 0) return 0;
         return ((currentPrice - order.price) / currentPrice) * 100;
@@ -108,10 +109,19 @@ export function OpenOrdersWidget({ spotOrders, perpOrders = [], prices, onCancel
                     <div className="divide-y divide-white/5">
                         <AnimatePresence mode="popLayout">
                             {currentOrders.map((order, i) => {
-                                const isBuy = order.side === 'buy' || order.side === 'long';
+                                // Stable side detection - normalize to lowercase once
+                                const side = String(order.side || '').toLowerCase();
+                                const isBuy = side === 'buy' || side === 'long';
+                                const type = String(order.type || '').toUpperCase();
+                                
+                                // Safe price and amount handling
+                                const price = Number(order.price) || 0;
+                                const amount = Number(order.amount) || 0;
+                                const filled = Number(order.filled) || 0;
+                                
                                 const distance = getDistancePercent(order);
-                                const fillPercent = order.filled && order.amount ? (order.filled / order.amount) * 100 : 0;
-                                const symbol = order.symbol.replace('/USDT', '').replace('-PERP', '');
+                                const fillPercent = amount > 0 ? (filled / amount) * 100 : 0;
+                                const symbol = normalizeSymbol((order as unknown as { rawSymbol?: string }).rawSymbol || order.symbol);
 
                                 return (
                                     <motion.div
@@ -119,7 +129,7 @@ export function OpenOrdersWidget({ spotOrders, perpOrders = [], prices, onCancel
                                         initial={{ opacity: 0, x: -20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: 20 }}
-                                        transition={{ delay: i * 0.05 }}
+                                        transition={{ delay: Math.min(i * 0.05, 0.3) }}
                                         className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors group"
                                     >
                                         {/* Left: Symbol + Side */}
@@ -145,10 +155,10 @@ export function OpenOrdersWidget({ spotOrders, perpOrders = [], prices, onCancel
                                                         "font-bold",
                                                         isBuy ? "text-emerald-500" : "text-rose-500"
                                                     )}>
-                                                        {order.side.toUpperCase()}
+                                                        {side.toUpperCase() || '-'}
                                                     </span>
                                                     <span className="text-zinc-600">•</span>
-                                                    <span className="text-zinc-500">{order.type.toUpperCase()}</span>
+                                                    <span className="text-zinc-500">{type || '-'}</span>
                                                     {order.leverage && (
                                                         <>
                                                             <span className="text-zinc-600">•</span>
@@ -162,7 +172,7 @@ export function OpenOrdersWidget({ spotOrders, perpOrders = [], prices, onCancel
                                         {/* Middle: Price + Distance */}
                                         <div className="flex flex-col items-end mx-3">
                                             <div className="font-mono text-sm text-white">
-                                                ${formatPrice(order.price)}
+                                                ${formatPrice(price)}
                                             </div>
                                             {distance !== 0 && (
                                                 <div className={cn(
@@ -179,13 +189,13 @@ export function OpenOrdersWidget({ spotOrders, perpOrders = [], prices, onCancel
                                         {/* Right: Amount + Fill Bar */}
                                         <div className="flex flex-col items-end min-w-[60px]">
                                             <div className="text-xs text-zinc-300 font-mono">
-                                                {order.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                                                {amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                                             </div>
                                             {fillPercent > 0 && (
                                                 <div className="w-12 h-1 bg-zinc-800 rounded-full mt-1 overflow-hidden">
                                                     <div
                                                         className="h-full bg-emerald-500 rounded-full"
-                                                        style={{ width: `${fillPercent}%` }}
+                                                        style={{ width: `${Math.min(fillPercent, 100)}%` }}
                                                     />
                                                 </div>
                                             )}

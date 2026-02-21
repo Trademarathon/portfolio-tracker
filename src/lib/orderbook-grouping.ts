@@ -1,5 +1,5 @@
 
-import { getHyperliquidL2Book, L2Book, L2BookParams } from './api/hyperliquid';
+import { getHyperliquidL2Book, L2BookParams } from './api/hyperliquid';
 
 export type { L2BookParams };
 

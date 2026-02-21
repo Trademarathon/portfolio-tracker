@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { Card, CardContent } from "@/components/ui/card";
 
 interface Metrics {
     totalPnl: number;
@@ -19,17 +18,19 @@ interface AdvancedMetricsProps {
     metrics: Metrics;
 }
 
-export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
-    const MetricItem = ({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) => (
+function MetricItem({ label, value, subValue, color }: { label: string, value: string, subValue?: string, color?: string }) {
+    return (
         <div className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+            <span className="title-md text-zinc-500">{label}</span>
             <div className="flex items-baseline gap-2">
-                <span className={`text-lg font-bold ${color || 'text-zinc-100'}`}>{value}</span>
+                <span className={`neo-digits text-lg font-semibold ${color || 'text-zinc-100'}`}>{value}</span>
                 {subValue && <span className="text-[10px] text-zinc-500">{subValue}</span>}
             </div>
         </div>
     );
+}
 
+export default function AdvancedMetrics({ metrics }: AdvancedMetricsProps) {
     return (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 px-1">
             <MetricItem

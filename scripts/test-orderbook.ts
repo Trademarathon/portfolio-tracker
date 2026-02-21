@@ -1,6 +1,6 @@
 
 import { getGroupedOrderbook, calculateOrderbookStepSizes } from '../src/lib/orderbook-grouping';
-import { getHyperliquidAllAssets } from '../src/lib/api/hyperliquid';
+
 
 async function main() {
     const args = process.argv.slice(2);
@@ -11,7 +11,7 @@ async function main() {
 
     // 1. Get Asset Metadata
     console.log('Fetching metadata...');
-    
+
     const metaResponse = await fetch('https://api.hyperliquid.xyz/info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,7 +35,7 @@ async function main() {
         body: JSON.stringify({ type: 'l2Book', coin: symbol })
     });
     const initialBook = await initialBookRes.json();
-    
+
     // Debug raw structure
     // console.log('Initial Book Response:', JSON.stringify(initialBook).substring(0, 200));
 

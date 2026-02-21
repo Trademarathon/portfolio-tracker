@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { EnhancedWebSocketManager } from '@/lib/api/websocket-enhanced';
 import { WebSocketMessage } from '@/lib/api/websocket-types';
+import { normalizeSymbol } from '@/lib/utils/normalization';
 
 export interface TickerData {
     symbol: string;
@@ -37,15 +38,26 @@ function initManager() {
     }
 }
 
+export function getUniversalManager() {
+    initManager();
+    return universalManager;
+}
+
+export function subscribeToUniversalMessages(cb: (msg: WebSocketMessage) => void) {
+    initManager();
+    subscribers.add(cb);
+    return () => subscribers.delete(cb);
+}
+
 export function useRealtimeMarket(symbols?: string[]) {
     // State for UI
     const [prices, setPrices] = useState<Record<string, number>>({});
     const [stats, setStats] = useState<Record<string, TickerData>>({});
 
-    // Refs for buffering high-frequency updates
+    // Refs for buffering updates
     const pricesRef = useRef<Record<string, number>>({});
     const statsRef = useRef<Record<string, TickerData>>({});
-    const prevPricesRef = useRef<Record<string, number>>({}); // For calculating micro-changes if needed
+    const dirtyRef = useRef(false);
 
     useEffect(() => {
         initManager();
@@ -54,20 +66,25 @@ export function useRealtimeMarket(symbols?: string[]) {
             if (msg.type === 'allMids') {
                 // msg.data is { "BTC": "65000", ... }
                 const updates: Record<string, number> = {};
+                if (!msg.data) return;
                 for (const [coin, price] of Object.entries(msg.data)) {
-                    updates[coin] = parseFloat(price as string);
+                    const n = parseFloat(price as string);
+                    if (!Number.isFinite(n)) continue;
+                    updates[coin] = n;
                 }
 
                 // Merge into ref
                 pricesRef.current = { ...pricesRef.current, ...updates };
+                dirtyRef.current = true;
                 // console.log(`[Realtime] keys: ${Object.keys(updates).length}`);
             }
             else if (msg.type === 'marketStats') {
                 // Process webData2
                 // Structure: [metadata, assetCtxs]
                 // We need to parse this efficiently
-                const { spotState, perpState, spotMeta, meta } = msg.data;
-                const assetCtxs = msg.data.assetCtxs;
+                const data = msg.data as any;
+                const { spotState: _spotState, perpState: _perpState, spotMeta, meta } = data;
+                const assetCtxs = data.assetCtxs;
                 const universe = meta?.universe || [];
 
                 // 1. Process PERPS
@@ -77,6 +94,7 @@ export function useRealtimeMarket(symbols?: string[]) {
                         if (!ctx) return;
 
                         const name = asset.name;
+                        const normalized = normalizeSymbol(name);
                         const price = parseFloat(ctx.markPx);
                         const dayNfv = parseFloat(ctx.dayNfv);
                         const prevDayPx = parseFloat(ctx.prevDayPx);
@@ -85,7 +103,7 @@ export function useRealtimeMarket(symbols?: string[]) {
 
                         const change24h = prevDayPx > 0 ? ((price / prevDayPx) - 1) * 100 : 0;
 
-                        statsRef.current[name] = {
+                        const ticker: TickerData = {
                             symbol: name,
                             price,
                             change24h,
@@ -94,13 +112,28 @@ export function useRealtimeMarket(symbols?: string[]) {
                             fundingRate: funding,
                             openInterest
                         };
+
+                        // Store under original Hyperliquid name
+                        statsRef.current[name] = ticker;
                         pricesRef.current[name] = price;
+
+                        // Also store under a normalized key so other parts of the app
+                        // (e.g. portfolio + orders, which use normalized symbols like BTC)
+                        // can correctly resolve PRICE / DIST / QTY for HL tickers.
+                        if (normalized && normalized !== name) {
+                            statsRef.current[normalized] = {
+                                ...ticker,
+                                symbol: normalized
+                            };
+                            pricesRef.current[normalized] = price;
+                        }
+                        dirtyRef.current = true;
                     });
                 }
 
                 // 2. Process SPOT
                 // webData2 structure for spot: spotAssetCtxs matches spotMeta.universe
-                const spotCtxs = msg.data.spotAssetCtxs;
+                const spotCtxs = (msg.data as any).spotAssetCtxs;
                 const spotUniverse = spotMeta?.universe || [];
 
                 if (spotCtxs && spotUniverse) {
@@ -109,6 +142,7 @@ export function useRealtimeMarket(symbols?: string[]) {
                         if (!ctx) return;
 
                         const name = asset.name; // e.g. "PURR" or "HYPE"
+                        const normalized = normalizeSymbol(name);
                         const price = parseFloat(ctx.markPx);
                         const dayNfv = parseFloat(ctx.dayNfv);
                         const prevDayPx = parseFloat(ctx.prevDayPx);
@@ -118,7 +152,7 @@ export function useRealtimeMarket(symbols?: string[]) {
 
                         const change24h = prevDayPx > 0 ? ((price / prevDayPx) - 1) * 100 : 0;
 
-                        statsRef.current[name] = {
+                        const ticker: TickerData = {
                             symbol: name,
                             price,
                             change24h,
@@ -127,7 +161,20 @@ export function useRealtimeMarket(symbols?: string[]) {
                             fundingRate: funding,
                             openInterest
                         };
+
+                        // Store under original Hyperliquid name
+                        statsRef.current[name] = ticker;
                         pricesRef.current[name] = price;
+
+                        // Also store under a normalized key (e.g. strip quotes/suffixes)
+                        if (normalized && normalized !== name) {
+                            statsRef.current[normalized] = {
+                                ...ticker,
+                                symbol: normalized
+                            };
+                            pricesRef.current[normalized] = price;
+                        }
+                        dirtyRef.current = true;
                     });
                 }
             }
@@ -136,21 +183,25 @@ export function useRealtimeMarket(symbols?: string[]) {
         // Subscribe
         subscribers.add(handleMessage);
 
-        // UI Update Loop (Throttle to 100ms ~ 10fps for smoothness without killing React)
-        const interval = setInterval(() => {
-            // Check if we have updates
-            // Optimize: Only update if visible/requested symbols change
-
-            // For now, simple batch update
-            setPrices(prev => ({ ...prev, ...pricesRef.current }));
-            setStats(prev => ({ ...prev, ...statsRef.current }));
-
-            // Note: We don't clear refs because they represent "Latest State", not "Events"
-        }, 100);
+        // Stable UI flush loop. Avoid 60fps state churn that can crash desktop renderer.
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const scheduleFlush = () => {
+            const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+            const flushMs = hidden ? 1200 : 350;
+            timer = setTimeout(() => {
+                if (dirtyRef.current) {
+                    dirtyRef.current = false;
+                    setPrices({ ...pricesRef.current });
+                    setStats({ ...statsRef.current });
+                }
+                scheduleFlush();
+            }, flushMs);
+        };
+        scheduleFlush();
 
         return () => {
             subscribers.delete(handleMessage);
-            clearInterval(interval);
+            if (timer) clearTimeout(timer);
         };
     }, []);
 
@@ -159,7 +210,11 @@ export function useRealtimeMarket(symbols?: string[]) {
         if (!symbols) return prices;
         const result: Record<string, number> = {};
         symbols.forEach(s => {
-            if (prices[s]) result[s] = prices[s];
+            const n = normalizeSymbol(s || "");
+            const direct = prices[s];
+            const normalized = n ? prices[n] : undefined;
+            const value = direct ?? normalized;
+            if (typeof value === "number") result[s] = value;
         });
         return result;
     }, [prices, symbols]); // Note: 'symbols' array ref equality matters here
@@ -168,7 +223,11 @@ export function useRealtimeMarket(symbols?: string[]) {
         if (!symbols) return stats;
         const result: Record<string, TickerData> = {};
         symbols.forEach(s => {
-            if (stats[s]) result[s] = stats[s];
+            const n = normalizeSymbol(s || "");
+            const direct = stats[s];
+            const normalized = n ? stats[n] : undefined;
+            const value = direct ?? normalized;
+            if (value) result[s] = value;
         });
         return result;
     }, [stats, symbols]);

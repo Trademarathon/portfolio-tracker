@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { ultraFetch, getLatencyTracker, ULTRA_CONFIG, globalRequestQueue } from '@/lib/ultraFast';
 
 export interface MarketStats {
     symbol: string;
@@ -18,13 +19,16 @@ export function useMarketStats() {
 
     useEffect(() => {
         const fetchStats = async () => {
+            const tracker = getLatencyTracker('hyperliquid-market-stats');
+            const start = performance.now();
             try {
                 // Fetching from Hyperliquid as a proxy for perp stats (they have good coverage of major assets)
-                const response = await fetch("https://api.hyperliquid.xyz/info", {
+                const response = await ultraFetch("https://api.hyperliquid.xyz/info", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ type: "metaAndAssetCtxs" }),
                 });
+                tracker.add(Math.round(performance.now() - start));
 
                 if (!response.ok) throw new Error("Failed to fetch market stats");
 
@@ -75,8 +79,10 @@ export function useMarketStats() {
         };
 
         fetchStats();
-        // Refresh every minute
-        const interval = setInterval(fetchStats, 60000);
+        // Refresh market stats (avoid Hyperliquid rate limits)
+        const interval = setInterval(() => {
+            globalRequestQueue.add(fetchStats);
+        }, 30000); // 30s interval
         return () => clearInterval(interval);
     }, []);
 

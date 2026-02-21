@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Transaction } from '@/lib/api/types';
 import { X, Save, Image as ImageIcon } from 'lucide-react';
+import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
+import { VoiceInputButton } from '@/components/ui/VoiceInputButton';
 
 interface TradeDetailsModalProps {
     transaction: Transaction;
@@ -14,6 +16,9 @@ export function TradeDetailsModal({ transaction, onClose, onSave }: TradeDetails
     const [notes, setNotes] = useState(transaction.notes || '');
     const [tags, setTags] = useState(transaction.tags?.join(', ') || '');
     const [screenshotUrl, setScreenshotUrl] = useState('');
+    const { isListening, isTranscribing, error: voiceError, isSupported: voiceSupported, toggleListening } = useVoiceRecognition({
+        onTranscript: (text) => setNotes(text),
+    });
 
     const handleSave = () => {
         const tagArray = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
@@ -104,12 +109,25 @@ export function TradeDetailsModal({ transaction, onClose, onSave }: TradeDetails
                     {/* Notes */}
                     <div className="flex-1">
                         <label className="block text-sm font-medium text-gray-400 mb-2">Trade Notes</label>
-                        <textarea
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                            placeholder="Why did I take this trade? How did I feel?"
-                            className="w-full h-32 bg-[#13151A] border border-[#2B2F36] rounded-lg p-3 text-gray-200 focus:outline-none focus:border-blue-500 transition-colors resize-none"
-                        />
+                        <div className="relative">
+                            <textarea
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                placeholder="Why did I take this trade? How did I feel?"
+                                className="w-full h-32 bg-[#13151A] border border-[#2B2F36] rounded-lg p-3 pr-14 text-gray-200 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+                            />
+                            <div className="absolute right-3 bottom-3">
+                                <VoiceInputButton
+                                    isListening={isListening}
+                                    isTranscribing={isTranscribing}
+                                    onClick={() => voiceSupported && toggleListening(notes)}
+                                    disabled={!voiceSupported}
+                                    title={voiceSupported ? (isListening ? "Stop recording" : "Record & transcribe") : "Voice not supported"}
+                                    size="sm"
+                                />
+                            </div>
+                        </div>
+                        {voiceError && <p className="text-[10px] text-amber-400 mt-1">{voiceError}</p>}
                     </div>
                 </div>
 

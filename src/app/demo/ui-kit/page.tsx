@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { NeoCard } from "@/components/ui/trade-nest/NeoCard";
-import { GlassPanel } from "@/components/ui/trade-nest/GlassPanel";
-import { PulseIndicator } from "@/components/ui/trade-nest/PulseIndicator";
-import { AnimatedValue } from "@/components/ui/trade-nest/AnimatedValue";
+import { NeoCard } from "@/components/ui/glass/NeoCard";
+import { GlassPanel } from "@/components/ui/glass/GlassPanel";
+import { PulseIndicator } from "@/components/ui/glass/PulseIndicator";
+import { AnimatedValue } from "@/components/ui/glass/AnimatedValue";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Zap, Shield, TrendingUp, Cpu } from "lucide-react";
 import { motion } from "framer-motion";
@@ -22,7 +22,7 @@ export default function UIKitDemo() {
     return (
         <div className="min-h-screen bg-black text-white p-8 space-y-12">
             <header className="max-w-4xl mx-auto space-y-4">
-                <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl">Trade Nest UI Kit</h1>
+                <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl">UI Kit</h1>
                 <p className="text-zinc-400 text-lg">Advanced, animated glassmorphic components for high-performance trading interfaces.</p>
             </header>
 
@@ -103,7 +103,7 @@ export default function UIKitDemo() {
             </section>
 
             <footer className="max-w-4xl mx-auto pt-12 text-center text-zinc-600 text-sm">
-                Built with Antigravity for Trade Nest. 2026.
+                Built with Antigravity. 2026.
             </footer>
         </div>
     );

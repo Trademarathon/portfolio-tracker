@@ -3,7 +3,8 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Position } from '@/lib/api/types';
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
+import { usePortfolio } from "@/contexts/PortfolioContext";
+import { BarChart3 } from "lucide-react";
 
 interface PositionWithName extends Position {
     assetName?: string;
@@ -14,7 +15,7 @@ interface OpenPositionsTableProps {
 }
 
 export default function OpenPositionsTable({ positions }: OpenPositionsTableProps) {
-    const router = useRouter();
+    const { setSelectedChart } = usePortfolio();
 
     if (!positions || positions.length === 0) {
         return (
@@ -51,12 +52,19 @@ export default function OpenPositionsTable({ positions }: OpenPositionsTableProp
                             {positions.map((pos, idx) => (
                                 <tr
                                     key={`${pos.symbol}-${idx}`}
-                                    className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                                    onClick={() => router.push('/watchlist?symbol=' + pos.symbol)}
+                                    className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer group"
+                                    onClick={() => setSelectedChart({
+                                        symbol: pos.symbol,
+                                        entryPrice: pos.entryPrice,
+                                        side: pos.side
+                                    })}
                                 >
                                     <td className="px-4 py-3">
                                         <div className="flex flex-col">
-                                            <span className="font-bold text-zinc-100">{pos.assetName || pos.symbol}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-zinc-100">{pos.assetName || pos.symbol}</span>
+                                                <BarChart3 className="h-3 w-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            </div>
                                             <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{pos.symbol}</span>
                                         </div>
                                     </td>

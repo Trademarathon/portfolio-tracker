@@ -53,7 +53,7 @@ export async function getZerionFullPortfolio(address: string): Promise<ZerionFul
     }
 }
 
-function normalizeZerionFullResponse(data: any): ZerionFullPortfolio {
+function normalizeZerionFullResponse(data: unknown): ZerionFullPortfolio {
     const portfolio: ZerionFullPortfolio = {
         tokens: [],
         nfts: [],
@@ -61,28 +61,34 @@ function normalizeZerionFullResponse(data: any): ZerionFullPortfolio {
         totalValue: 0
     };
 
-    if (!data.data || !Array.isArray(data.data)) {
+    const root = data as Record<string, unknown>;
+    const positions = root.data;
+    if (!positions || !Array.isArray(positions)) {
         return portfolio;
     }
 
-    data.data.forEach((position: any) => {
-        const attr = position.attributes;
-        const quantity = parseFloat(attr.quantity || '0');
-        const value = attr.value || 0;
-        const price = attr.price || 0;
-        const chain = attr.chain || 'unknown';
+    positions.forEach((position: unknown) => {
+        const pos = position as Record<string, unknown>;
+        const attr = (pos.attributes || {}) as Record<string, unknown>;
+        const quantity = parseFloat(String(attr.quantity || '0'));
+        const value = Number(attr.value || 0);
+        const price = Number(attr.price || 0);
+        const chain = String(attr.chain || 'unknown');
 
         // Tokens
-        if (attr.fungible_info) {
+        const fungibleInfo = attr.fungible_info as Record<string, unknown> | undefined;
+        const nftInfo = attr.nft_info as Record<string, unknown> | undefined;
+
+        if (fungibleInfo) {
             const asset: ZerionAsset = {
-                id: position.id,
-                symbol: attr.fungible_info.symbol,
-                name: attr.fungible_info.name,
+                id: String(pos.id || ''),
+                symbol: String(fungibleInfo.symbol || ''),
+                name: String(fungibleInfo.name || ''),
                 balance: quantity,
                 price,
                 value,
-                icon: attr.fungible_info.icon?.url,
-                change24h: attr.changes?.absolute_1d || 0, // value change
+                icon: (fungibleInfo.icon as Record<string, unknown> | undefined)?.url as string | undefined,
+                change24h: Number((attr.changes as Record<string, unknown> | undefined)?.absolute_1d || 0), // value change
                 type: 'token',
                 chain
             };
@@ -90,15 +96,18 @@ function normalizeZerionFullResponse(data: any): ZerionFullPortfolio {
             portfolio.totalValue += value;
         }
         // NFTs
-        else if (attr.nft_info) {
+        else if (nftInfo) {
             const asset: ZerionAsset = {
-                id: position.id,
-                symbol: attr.nft_info.contract_address?.slice(0, 6) || 'NFT',
-                name: attr.nft_info.name || 'Unknown NFT',
+                id: String(pos.id || ''),
+                symbol: String(nftInfo.contract_address || '').slice(0, 6) || 'NFT',
+                name: String(nftInfo.name || '') || 'Unknown NFT',
                 balance: quantity,
                 price, // Floor price often?
                 value,
-                icon: attr.nft_info.content?.preview?.url || attr.nft_info.content?.detail?.url,
+                icon: (
+                    (((nftInfo.content as Record<string, unknown> | undefined)?.preview as Record<string, unknown> | undefined)?.url as string | undefined) ||
+                    (((nftInfo.content as Record<string, unknown> | undefined)?.detail as Record<string, unknown> | undefined)?.url as string | undefined)
+                ),
                 type: 'nft',
                 chain
             };
@@ -110,9 +119,9 @@ function normalizeZerionFullResponse(data: any): ZerionFullPortfolio {
         // Simplified: everything else with value is DeFi
         else if (value > 0) {
             const asset: ZerionAsset = {
-                id: position.id,
+                id: String(pos.id || ''),
                 symbol: 'DeFi',
-                name: position.relationships?.dapp?.data?.id || 'Unknown Protocol',
+                name: String((((pos.relationships as Record<string, unknown> | undefined)?.dapp as Record<string, unknown> | undefined)?.data as Record<string, unknown> | undefined)?.id || 'Unknown Protocol'),
                 balance: quantity,
                 price,
                 value,
@@ -133,7 +142,7 @@ export async function getZerionPortfolio(address: string): Promise<{ symbol: str
     return full.tokens.map(t => ({ symbol: t.symbol, balance: t.balance }));
 }
 
-export async function getZerionHistory(address: string): Promise<any[]> {
+export async function getZerionHistory(address: string): Promise<unknown[]> {
     try {
         const response = await fetch(`${ZERION_BASE_URL}/wallets/${address}/transactions/?currency=usd&page[size]=50`, {
             headers: {
@@ -146,18 +155,27 @@ export async function getZerionHistory(address: string): Promise<any[]> {
         if (!response.ok) return [];
         const data = await response.json();
 
-        if (!data.data || !Array.isArray(data.data)) return [];
+        const root = data as Record<string, unknown>;
+        const rows = root.data;
+        if (!rows || !Array.isArray(rows)) return [];
 
-        return data.data.map((tx: any) => ({
-            id: tx.id,
-            timestamp: new Date(tx.attributes.mined_at).getTime(),
-            symbol: tx.attributes.transfers?.[0]?.fungible_info?.symbol || 'Unknown',
-            side: tx.attributes.operation_type || 'transfer',
+        return rows.map((tx: unknown) => {
+            const t = tx as Record<string, unknown>;
+            const attr = (t.attributes || {}) as Record<string, unknown>;
+            const transfers = (attr.transfers as unknown[]) || [];
+            const firstTransfer = transfers[0] as Record<string, unknown> | undefined;
+            const fungibleInfo = (firstTransfer?.fungible_info || {}) as Record<string, unknown>;
+            return {
+                id: String(t.id || ''),
+                timestamp: new Date(String(attr.mined_at || 0)).getTime(),
+                symbol: String(fungibleInfo.symbol || 'Unknown'),
+                side: String(attr.operation_type || 'transfer'),
             price: 0,
-            amount: parseFloat(tx.attributes.transfers?.[0]?.quantity || '0'),
+                amount: parseFloat(String(firstTransfer?.quantity || '0')),
             exchange: 'Zerion',
-            status: tx.attributes.status === 'confirmed' ? 'Confirmed' : 'Pending'
-        }));
+                status: String(attr.status || '') === 'confirmed' ? 'Confirmed' : 'Pending'
+            };
+        });
     } catch (e) {
         console.error("Zerion History Error:", e);
         return [];

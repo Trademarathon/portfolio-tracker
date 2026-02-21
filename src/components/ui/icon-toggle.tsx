@@ -41,7 +41,7 @@ export function IconToggle<T extends string>({
 
     return (
         <div className={cn(
-            "flex items-center bg-zinc-900 border border-white/10 rounded-full relative",
+            "flex items-center bg-muted/80 border border-border rounded-full relative",
             sizeClasses[size],
             className
         )}>
@@ -53,15 +53,15 @@ export function IconToggle<T extends string>({
                         onClick={() => onChange(option.value)}
                         className={cn(
                             "relative flex-1 h-full flex items-center justify-center rounded-full transition-colors z-10",
-                            isActive ? "text-white" : "text-zinc-500 hover:text-zinc-300"
+                            isActive ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                         )}
                         aria-label={option.label || option.value}
                         title={option.label || option.value}
                     >
                         {isActive && (
                             <motion.div
-                                layoutId={`icon-toggle-active-${className}`} // distinct layoutId if multiple on page
-                                className="absolute inset-0 bg-zinc-700/80 rounded-full -z-10"
+                                layoutId={`icon-toggle-active-${className}`}
+                                className="absolute inset-0 bg-primary rounded-full -z-10"
                                 transition={{
                                     type: "spring",
                                     stiffness: 500,

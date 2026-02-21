@@ -13,6 +13,8 @@ import {
 import { StrategyTagSelector } from "./StrategyTagSelector";
 import { X, Save, Trash2, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useVoiceRecognition } from "@/hooks/useVoiceRecognition";
+import { VoiceInputButton } from "@/components/ui/VoiceInputButton";
 
 interface TradeAnnotationModalProps {
     isOpen: boolean;
@@ -56,6 +58,11 @@ export function TradeAnnotationModal({
     const [keyLevels, setKeyLevels] = useState(existingAnnotation?.marketProfile?.keyLevels || '');
     const [profileContext, setProfileContext] = useState(existingAnnotation?.marketProfile?.context || '');
     const [trevSettings, setTrevSettings] = useState(existingAnnotation?.trevSettings || '');
+    const [mistakeTags, setMistakeTags] = useState((existingAnnotation?.mistakeTags || []).join(', '));
+
+    const { isListening, isTranscribing, error: voiceError, isSupported: voiceSupported, toggleListening } = useVoiceRecognition({
+        onTranscript: (text) => setNotes(text),
+    });
 
     // Reset form when modal opens with new trade
     useEffect(() => {
@@ -67,6 +74,7 @@ export function TradeAnnotationModal({
             setKeyLevels(existingAnnotation?.marketProfile?.keyLevels || '');
             setProfileContext(existingAnnotation?.marketProfile?.context || '');
             setTrevSettings(existingAnnotation?.trevSettings || '');
+            setMistakeTags((existingAnnotation?.mistakeTags || []).join(', '));
         }
     }, [isOpen, existingAnnotation]);
 
@@ -82,6 +90,10 @@ export function TradeAnnotationModal({
                 context: profileContext,
             },
             trevSettings,
+            mistakeTags: mistakeTags
+                .split(',')
+                .map(t => t.trim())
+                .filter(Boolean),
         });
         onClose();
     };
@@ -165,12 +177,25 @@ export function TradeAnnotationModal({
                                 {/* Notes */}
                                 <div className="space-y-2">
                                     <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Institutional Context</label>
-                                    <textarea
-                                        value={notes}
-                                        onChange={e => setNotes(e.target.value)}
-                                        placeholder="e.g., b-shape profile, seller absorption at VAL, responsive buyers..."
-                                        className="w-full h-24 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                                    />
+                                    <div className="relative">
+                                        <textarea
+                                            value={notes}
+                                            onChange={e => setNotes(e.target.value)}
+                                            placeholder="e.g., b-shape profile, seller absorption at VAL, responsive buyers..."
+                                            className="w-full h-24 px-4 py-3 pr-14 rounded-xl bg-white/5 border border-white/10 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                                        />
+                                        <div className="absolute right-3 bottom-3">
+                                            <VoiceInputButton
+                                                isListening={isListening}
+                                                isTranscribing={isTranscribing}
+                                                onClick={() => voiceSupported && toggleListening(notes)}
+                                                disabled={!voiceSupported}
+                                                title={voiceSupported ? (isListening ? "Stop recording" : "Record & transcribe") : "Voice not supported"}
+                                                size="sm"
+                                            />
+                                        </div>
+                                    </div>
+                                    {voiceError && <p className="text-[10px] text-amber-400">{voiceError}</p>}
                                 </div>
 
                                 {/* Market Profile Section */}
@@ -228,6 +253,19 @@ export function TradeAnnotationModal({
                                             className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                                         />
                                     </div>
+                                </div>
+
+                                {/* Mistake Tags */}
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mistake Tags</label>
+                                    <input
+                                        type="text"
+                                        value={mistakeTags}
+                                        onChange={e => setMistakeTags(e.target.value)}
+                                        placeholder="e.g., chased, ignored_val, early_exit"
+                                        className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    />
+                                    <p className="text-[10px] text-zinc-500">Comma-separated. Used to detect repeated mistakes.</p>
                                 </div>
                             </div>
 

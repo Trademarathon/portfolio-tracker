@@ -3,10 +3,10 @@
  * Maps wrapped tokens and platform-specific symbols to their main trading symbol.
  */
 export function normalizeSymbol(symbol: string, chain?: string): string {
-    if (!symbol) return '';
+    if (!symbol || typeof symbol !== 'string') return '';
 
     // 0. Basic cleaning
-    let s = symbol.toUpperCase().trim();
+    let s = String(symbol).toUpperCase().trim();
 
     // 1. Handle specific exchange/blockchain formats (e.g. "0x...::Module::Coin" or "Spot::BTC")
     if (s.includes('::')) {
@@ -49,9 +49,16 @@ export function normalizeSymbol(symbol: string, chain?: string): string {
         'USDT.P': 'USDT',
         'BTC.B': 'BTC', // Avalanche BTC
         'MANTLE': 'MNT',
+        // Legacy bad alias observed in historical cached journal rows.
+        // Keep this to auto-correct old local/cloud snapshots.
+        'NIGGO': 'MIGGO',
         'GAS': 'GAS',
         'LUNA': 'LUNC', // Classic assumption by default
-        'WIF': 'WIF'    // Explicit keep
+        'WIF': 'WIF',   // Explicit keep
+        // Hyperliquid Unit tokens (UBTC/USDC, UETH/USDC etc. display as BTC, ETH on UI)
+        'UBTC': 'BTC',
+        'UETH': 'ETH',
+        'USOL': 'SOL',
     };
 
     if (mapping[s]) {
@@ -60,6 +67,9 @@ export function normalizeSymbol(symbol: string, chain?: string): string {
 
     // Special logic for specific chains if needed
     if (chain === 'SOL' && s === 'SOL') return 'SOL';
+
+    // 5. Final cleanup of trailing separators
+    s = s.replace(/[/:_-]+$/, '');
 
     return s;
 }

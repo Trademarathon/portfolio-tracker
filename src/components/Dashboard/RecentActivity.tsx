@@ -48,7 +48,11 @@ export function RecentActivity({ positions, activities, loading }: RecentActivit
         const isTransfer = act.activityType === 'transfer' || (act as any).type === 'Deposit' || (act as any).type === 'Withdraw';
 
         const side = (act as any).side || (act as any).type || 'UNKNOWN';
-        let typeLabel = isTrade ? side.toUpperCase() : isInternal ? 'INTERNAL' : ((act as any).type || 'UNKNOWN').toUpperCase();
+        const typeLabel = isTrade
+            ? String(side || '').toUpperCase()
+            : isInternal
+                ? 'INTERNAL'
+                : String(((act as any).type || 'UNKNOWN') || '').toUpperCase();
         let typeColor = 'text-zinc-500';
         let Icon = Activity;
 

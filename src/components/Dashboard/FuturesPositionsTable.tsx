@@ -6,14 +6,15 @@ import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils";
 import { Activity, AlertTriangle, ArrowUpRight, TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { TokenIcon } from "@/components/ui/TokenIcon";
-import { useRouter } from "next/navigation";
+import { usePortfolio } from "@/contexts/PortfolioContext";
+import { BarChart3 } from "lucide-react";
 
 interface FuturesPositionsTableProps {
     positions: Position[];
 }
 
 export function FuturesPositionsTable({ positions }: FuturesPositionsTableProps) {
-    const router = useRouter();
+    const { setSelectedChart } = usePortfolio();
 
     if (!positions || positions.length === 0) {
         return (
@@ -83,7 +84,11 @@ export function FuturesPositionsTable({ positions }: FuturesPositionsTableProps)
                             return (
                                 <tr
                                     key={`${pos.symbol}-${idx}`}
-                                    onClick={() => router.push(`/asset/${pos.symbol.replace(/(-PERP|USDT|USDC)$/, '')}`)}
+                                    onClick={() => setSelectedChart({
+                                        symbol: pos.symbol.split('-')[0], // Extract base symbol
+                                        entryPrice: pos.entryPrice,
+                                        side: pos.side
+                                    })}
                                     className="group hover:bg-white/5 transition-colors cursor-pointer"
                                 >
                                     <td className="px-4 py-3">
@@ -95,6 +100,7 @@ export function FuturesPositionsTable({ positions }: FuturesPositionsTableProps)
                                                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-normal border border-white/5">
                                                         {leverage}
                                                     </span>
+                                                    <BarChart3 className="h-3 w-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                                                 </div>
                                                 <div className="text-[10px] text-zinc-500">Perpetual</div>
                                             </div>

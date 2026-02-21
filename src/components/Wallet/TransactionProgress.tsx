@@ -1,18 +1,18 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { usePortfolioData } from "@/hooks/usePortfolioData";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 import { Wallet, ArrowUpRight, ArrowDownRight, Clock } from "lucide-react";
 
 export const TransactionProgress = () => {
-    const { assets, wsConnectionStatus } = usePortfolioData();
+    const { assets, wsConnectionStatus } = usePortfolio();
 
     // Get Zerion/wallet connections
     const walletConnections = Array.from(wsConnectionStatus?.entries() || [])
         .filter(([_, info]) => ['zerion', 'wallet', 'evm', 'solana'].includes(info.type));
 
     // Get wallet assets
-    const walletAssets = assets.filter(asset => {
+    const walletAssets = (assets || []).filter(asset => {
         if (!asset.breakdown) return false;
         return Object.keys(asset.breakdown).some(sourceId => {
             const connection = wsConnectionStatus?.get(sourceId);

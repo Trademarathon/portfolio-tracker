@@ -1,3 +1,5 @@
+import { ultraFetch, getLatencyTracker } from '@/lib/ultraFast';
+
 export interface FundingRate {
     symbol: string;
     markPrice: number;
@@ -10,8 +12,11 @@ export interface FundingRate {
 const BINANCE_FUTURES_API = 'https://fapi.binance.com/fapi/v1';
 
 export async function getGlobalFundingRates(): Promise<FundingRate[]> {
+    const tracker = getLatencyTracker('binance-funding-global');
+    const start = performance.now();
     try {
-        const response = await fetch(`${BINANCE_FUTURES_API}/premiumIndex`);
+        const response = await ultraFetch(`${BINANCE_FUTURES_API}/premiumIndex`);
+        tracker.add(Math.round(performance.now() - start));
         if (!response.ok) {
             throw new Error('Failed to fetch funding rates');
         }

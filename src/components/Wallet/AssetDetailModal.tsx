@@ -9,7 +9,7 @@ import {
     Clock, ExternalLink, Copy, Check, Wallet, ArrowRightLeft,
     RefreshCw
 } from "lucide-react";
-import { usePortfolioData } from "@/hooks/usePortfolioData";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 import { cn } from "@/lib/utils";
 
 interface AssetDetailModalProps {
@@ -30,20 +30,20 @@ interface AssetDetailModalProps {
 export function AssetDetailModal({ isOpen, onClose, asset }: AssetDetailModalProps) {
     const [activeTab, setActiveTab] = useState("Overview");
     const [copied, setCopied] = useState(false);
-    const { transactions, transfers, loading: isLoading } = usePortfolioData();
+    const { transactions, transfers, loading: isLoading } = usePortfolio();
 
     if (!asset) return null;
 
     // Filter transactions for this asset
     const assetTransactions = transactions?.filter(
-        tx => tx.asset?.toUpperCase() === asset.symbol.toUpperCase() ||
-            tx.symbol?.toUpperCase() === asset.symbol.toUpperCase()
+        tx => String(tx.asset || '').toUpperCase() === String(asset.symbol || '').toUpperCase() ||
+            String(tx.symbol || '').toUpperCase() === String(asset.symbol || '').toUpperCase()
     ) || [];
 
     // Filter transfers for this asset
     const assetTransfers = transfers?.filter(
-        tx => tx.asset?.toUpperCase() === asset.symbol.toUpperCase() ||
-            tx.symbol?.toUpperCase() === asset.symbol.toUpperCase()
+        tx => String(tx.asset || '').toUpperCase() === String(asset.symbol || '').toUpperCase() ||
+            String(tx.symbol || '').toUpperCase() === String(asset.symbol || '').toUpperCase()
     ) || [];
 
     const copyAddress = () => {

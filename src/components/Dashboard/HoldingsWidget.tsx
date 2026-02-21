@@ -14,10 +14,11 @@ interface HoldingsWidgetProps {
     assets: PortfolioAsset[];
 }
 
-export function HoldingsWidget({ assets }: HoldingsWidgetProps) {
+export function HoldingsWidget({ assets: assetsProp }: HoldingsWidgetProps) {
+    const assets = Array.isArray(assetsProp) ? assetsProp : [];
     const topAssets = useMemo(() => {
         return [...assets]
-            .sort((a, b) => b.valueUsd - a.valueUsd)
+            .sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0))
             .slice(0, 4); // Top 4
     }, [assets]);
 

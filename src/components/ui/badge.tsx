@@ -15,6 +15,15 @@ const badgeVariants = cva(
                 destructive:
                     "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
                 outline: "text-foreground",
+                /** Status pills - use for trade status, connection status, etc. */
+                success:
+                    "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+                warning:
+                    "border-amber-500/30 bg-amber-500/10 text-amber-400",
+                error:
+                    "border-rose-500/30 bg-rose-500/10 text-rose-400",
+                neutral:
+                    "border-zinc-500/30 bg-zinc-500/10 text-zinc-400",
             },
         },
         defaultVariants: {

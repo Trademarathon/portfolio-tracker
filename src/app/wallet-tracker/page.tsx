@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTrackedWallets } from "@/hooks/useTrackedWallets";
 import { TrackerGroupManager } from "@/components/Wallet/Tracker/TrackerGroupManager";
 import { TrackerGroupView } from "@/components/Wallet/Tracker/TrackerGroupView";
@@ -9,6 +9,9 @@ import { QuickTrackerBar } from "@/components/Wallet/Tracker/QuickTrackerBar";
 import { Plus, Wallet, ShieldCheck } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AssetDetailModal } from "@/components/Wallet/AssetDetailModal"; // Keep if needed for asset details
+import { PageWrapper } from "@/components/Layout/PageWrapper";
+import { useAIInsight } from "@/lib/ai-orchestrator/hooks";
+import { AIPulseCard } from "@/components/Dashboard/AIPulseCard";
 
 export default function WalletTrackerPage() {
     const {
@@ -36,18 +39,38 @@ export default function WalletTrackerPage() {
     const activeGroup = groups.find(g => g.id === activeGroupId);
     const activeData = activeGroupId ? groupData[activeGroupId] : null;
 
+    const walletContext = useMemo(() => ({
+        groupCount: groups.length,
+        activeGroup: activeGroup?.name || null,
+        addressCount: activeGroup?.addresses.length ?? 0,
+        totalValue: activeData?.totalValue ?? 0,
+        assetCount: activeData?.assets?.length ?? 0,
+        txCount: activeData?.transactions?.length ?? 0,
+    }), [groups.length, activeGroup?.name, activeGroup?.addresses.length, activeData?.totalValue, activeData?.assets?.length, activeData?.transactions?.length]);
+
+    const { data: walletInsight, loading: walletInsightLoading } = useAIInsight(
+        "wallet_health",
+        walletContext,
+        [activeGroupId, activeData?.assets?.length ?? 0, activeData?.transactions?.length ?? 0],
+        true,
+        { stream: true }
+    );
+
     return (
-        <div className="flex flex-col gap-6 pb-24 md:pb-12 max-w-[1600px] mx-auto w-full min-h-screen">
+        <PageWrapper className="flex flex-col gap-6 px-4 md:px-6 lg:px-8 pt-4 pb-12 max-w-none w-full">
+        <div className="flex flex-col gap-6 pb-8 max-w-[1600px] mx-auto w-full min-h-[calc(100vh-120px)]">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-1 mb-2">
-                <div className="flex flex-col gap-1">
-                    <h1 className="text-3xl font-bold font-urbanist tracking-tight text-white mb-1 flex items-center gap-3">
-                        <ShieldCheck className="h-8 w-8 text-indigo-500" />
-                        Wallet Tracker
-                    </h1>
-                    <p className="text-sm text-muted-foreground font-urbanist">
-                        Track specific wallet addresses independently.
-                    </p>
+            <div className="tm-page-header clone-noise mb-2">
+                <div className="tm-page-header-main">
+                    <div className="tm-page-header-icon">
+                        <ShieldCheck className="h-5 w-5 text-indigo-400" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <h1 className="tm-page-title">Wallet Tracker</h1>
+                        <p className="tm-page-subtitle">
+                            Track specific wallet addresses independently.
+                        </p>
+                    </div>
                 </div>
 
                 <TrackerGroupManager
@@ -59,7 +82,11 @@ export default function WalletTrackerPage() {
                 />
             </div>
 
-
+            <AIPulseCard
+                title="Wallet Health"
+                response={walletInsight}
+                loading={walletInsightLoading}
+            />
 
             <QuickTrackerBar
                 groups={groups}
@@ -128,6 +155,7 @@ export default function WalletTrackerPage() {
             }
 
 
-        </div >
+        </div>
+        </PageWrapper>
     );
 }

@@ -44,7 +44,7 @@ export default function AnalyticsCharts({ pnlData, drawdownData }: AnalyticsChar
     return (
         <div className="space-y-4">
             {/* Lifetime PNL Chart */}
-            <Card className="bg-zinc-900/50 border-white/5 overflow-hidden">
+            <Card className="neo-card neo-card-cool bg-zinc-900/50 border-white/5 overflow-hidden">
                 <CardHeader className="pb-0">
                     <CardTitle className="text-sm font-medium text-zinc-400">Lifetime PNL</CardTitle>
                 </CardHeader>
@@ -79,7 +79,7 @@ export default function AnalyticsCharts({ pnlData, drawdownData }: AnalyticsChar
                                 fillOpacity={1}
                                 fill={`url(#${pnlData[pnlData.length - 1]?.value >= 0 ? 'colorPnl' : 'colorPnlRed'})`}
                                 strokeWidth={2}
-                                animationDuration={1500}
+                                animationDuration={180}
                             />
                         </AreaChart>
                     </ResponsiveContainer>
@@ -87,7 +87,7 @@ export default function AnalyticsCharts({ pnlData, drawdownData }: AnalyticsChar
             </Card>
 
             {/* Drawdown Chart */}
-            <Card className="bg-zinc-900/50 border-white/5 overflow-hidden">
+            <Card className="neo-card neo-card-warm bg-zinc-900/50 border-white/5 overflow-hidden">
                 <CardHeader className="pb-0">
                     <CardTitle className="text-sm font-medium text-zinc-400">Drawdown ($)</CardTitle>
                 </CardHeader>
@@ -117,7 +117,7 @@ export default function AnalyticsCharts({ pnlData, drawdownData }: AnalyticsChar
                                 fillOpacity={1}
                                 fill="url(#colorDd)"
                                 strokeWidth={1}
-                                animationDuration={1500}
+                                animationDuration={180}
                             />
                         </AreaChart>
                     </ResponsiveContainer>

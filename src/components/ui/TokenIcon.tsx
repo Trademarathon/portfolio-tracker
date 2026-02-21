@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { CryptoIcon } from "@/components/ui/CryptoIcon";
+import { getTokenColor } from "@/lib/token-metadata";
 
 interface TokenIconProps {
     symbol: string;
@@ -10,13 +12,16 @@ interface TokenIconProps {
     size?: number;
 }
 
-import { getTokenColor } from "@/lib/token-metadata";
-
-export function TokenIcon({ symbol, className, size = 32 }: TokenIconProps) {
+export const TokenIcon = memo(({ symbol, className, size = 32 }: TokenIconProps) => {
     const [error, setError] = useState(false);
+
+    if (!symbol) {
+        return <div className={cn("rounded-full bg-zinc-800", className)} style={{ width: size, height: size }} />;
+    }
+
     const normalizedSymbol = symbol.toLowerCase();
 
-    // Try CoinCap first, it's generally good. We can add manual overrides here if needed.
+    // Try CoinCap first, it's generally good.
     const iconUrl = `https://assets.coincap.io/assets/icons/${normalizedSymbol}@2x.png`;
 
     if (error) {
@@ -56,6 +61,4 @@ export function TokenIcon({ symbol, className, size = 32 }: TokenIconProps) {
             <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none" />
         </div>
     );
-}
-
-import { CryptoIcon } from "@/components/ui/CryptoIcon";
+});

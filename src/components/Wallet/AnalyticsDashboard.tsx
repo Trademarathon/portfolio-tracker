@@ -2,17 +2,17 @@
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { TrendingUp, AlertCircle, LineChart, ShieldCheck, Wallet, PieChart, ArrowUpRight, ArrowDownRight } from "lucide-react";
-import { usePortfolioData } from "@/hooks/usePortfolioData";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 
 export const AnalyticsDashboard = () => {
-    const { assets, wsConnectionStatus } = usePortfolioData();
+    const { assets, wsConnectionStatus } = usePortfolio();
 
     // Get wallet connections
     const walletConnections = Array.from(wsConnectionStatus?.entries() || [])
         .filter(([_, info]) => ['zerion', 'wallet', 'evm', 'solana'].includes(info.type));
 
     // Get wallet assets
-    const walletAssets = assets.filter(asset => {
+    const walletAssets = (assets || []).filter(asset => {
         if (!asset.breakdown) return false;
         return Object.keys(asset.breakdown).some(sourceId => {
             const connection = wsConnectionStatus?.get(sourceId);
@@ -41,7 +41,7 @@ export const AnalyticsDashboard = () => {
     // No wallets
     if (walletConnections.length === 0) {
         return (
-            <Card className="bg-[#141318] border-white/5 h-full">
+            <Card className="bg-[#141318] border-white/5 h-full clone-wallet-card clone-noise">
                 <CardHeader>
                     <CardTitle className="text-xl font-bold font-urbanist">Portfolio Insights</CardTitle>
                 </CardHeader>
@@ -57,14 +57,14 @@ export const AnalyticsDashboard = () => {
     }
 
     return (
-        <Card className="bg-[#141318] border-white/5 h-full">
+        <Card className="bg-[#141318] border-white/5 h-full clone-wallet-card clone-noise">
             <CardHeader>
                 <CardTitle className="text-xl font-bold font-urbanist">Portfolio Insights</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
                 {/* Largest Holding */}
                 {topAsset && (
-                    <div className="p-4 rounded-xl bg-gradient-to-r from-purple-900/20 to-purple-800/20 border border-purple-500/20">
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-purple-900/20 to-purple-800/20 border border-purple-500/20 clone-wallet-card clone-noise">
                         <div className="flex items-start gap-4">
                             <div className="h-10 w-10 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0">
                                 <PieChart className="h-5 w-5 text-purple-400" />
@@ -81,7 +81,7 @@ export const AnalyticsDashboard = () => {
 
                 {/* Top Gainer */}
                 {topGainer && topGainer.change24h > 0 && (
-                    <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-900/20 to-emerald-800/20 border border-emerald-500/20">
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-900/20 to-emerald-800/20 border border-emerald-500/20 clone-wallet-card clone-noise">
                         <div className="flex items-start gap-4">
                             <div className="h-10 w-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
                                 <ArrowUpRight className="h-5 w-5 text-emerald-400" />
@@ -98,7 +98,7 @@ export const AnalyticsDashboard = () => {
 
                 {/* Top Loser */}
                 {topLoser && topLoser.change24h < 0 && (
-                    <div className="p-4 rounded-xl bg-gradient-to-r from-red-900/20 to-red-800/20 border border-red-500/20">
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-red-900/20 to-red-800/20 border border-red-500/20 clone-wallet-card clone-noise">
                         <div className="flex items-start gap-4">
                             <div className="h-10 w-10 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
                                 <ArrowDownRight className="h-5 w-5 text-red-400" />
@@ -114,7 +114,7 @@ export const AnalyticsDashboard = () => {
                 )}
 
                 {/* Diversification */}
-                <div className="p-4 rounded-xl bg-white/5 border border-white/5">
+                <div className="p-4 rounded-xl bg-white/5 border border-white/5 clone-wallet-card clone-noise">
                     <div className="flex items-start gap-4">
                         <div className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
                             <ShieldCheck className="h-5 w-5 text-blue-400" />

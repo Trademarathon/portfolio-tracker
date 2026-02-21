@@ -1,32 +1,25 @@
-import { NextResponse } from 'next/server';
-import { getEvmHistory, getSolanaHistory, getSuiHistory, getAptosHistory } from '@/lib/api/wallet';
+import { NextRequest, NextResponse } from "next/server";
+import { getChainHistory, ChainType } from "@/lib/api/wallet";
 
-export async function GET(request: Request) {
-    const { searchParams } = new URL(request.url);
-    const address = searchParams.get('address');
-    const chain = searchParams.get('chain');
-    const type = searchParams.get('type');
+export const revalidate = 3600;
 
-    if (!address) {
-        return NextResponse.json({ error: 'Missing address' }, { status: 400 });
+export async function GET(req: NextRequest) {
+    if (process.env.NEXT_PHASE === "phase-production-build") {
+        return NextResponse.json({ error: "Use standalone API server in production" }, { status: 503 });
+    }
+    const { searchParams } = new URL(req.url);
+    const address = searchParams.get("address");
+    const chain = searchParams.get("chain");
+
+    if (!address || !chain) {
+        return NextResponse.json({ error: "Address and chain are required" }, { status: 400 });
     }
 
     try {
-        let history = [];
-        if (type === 'solana' || chain === 'SOL') {
-            history = await getSolanaHistory(address);
-        } else if (type === 'sui' || chain === 'SUI') {
-            history = await getSuiHistory(address);
-        } else if (type === 'aptos' || chain === 'APT') {
-            history = await getAptosHistory(address);
-        } else {
-            // Default to EVM
-            history = await getEvmHistory(address, (chain as any) || 'ETH');
-        }
-
-        return NextResponse.json(history);
-    } catch (error: any) {
-        console.error('Wallet History Proxy Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        const data = await getChainHistory(address, chain as ChainType);
+        return NextResponse.json(data);
+    } catch (error) {
+        console.error("History API Error:", error);
+        return NextResponse.json({ error: "Failed to fetch history" }, { status: 500 });
     }
 }

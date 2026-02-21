@@ -10,12 +10,13 @@ interface StablecoinWidgetProps {
     loading: boolean;
 }
 
-export function StablecoinWidget({ assets, loading }: StablecoinWidgetProps) {
+export function StablecoinWidget({ assets: assetsProp, loading }: StablecoinWidgetProps) {
+    const assets = Array.isArray(assetsProp) ? assetsProp : [];
     if (loading) {
         return <div className="animate-pulse h-64 bg-zinc-900 rounded-xl" />;
     }
 
-    const stablecoins = assets.filter(a => a.sector === 'Stablecoin' && a.balance > 0);
+    const stablecoins = assets.filter(a => a.sector === 'Stablecoin' && (a.balance || 0) > 0);
     const totalStableValue = stablecoins.reduce((acc, curr) => acc + (curr.valueUsd || 0), 0);
 
     if (stablecoins.length === 0) return null;

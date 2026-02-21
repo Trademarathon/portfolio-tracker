@@ -1,19 +1,16 @@
 "use client";
 
-import { usePortfolioData } from "@/hooks/usePortfolioData";
-import TransactionHistory from "@/components/Dashboard/TransactionHistory";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-export default function TransactionsPage() {
-    const { activities, loading } = usePortfolioData();
-
+export default function TransactionsRedirect() {
+    const router = useRouter();
+    useEffect(() => {
+        router.replace("/activity?filter=trades");
+    }, [router]);
     return (
-        <div className="flex flex-col gap-6 pb-12">
-            <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold tracking-tight text-white">Activity History</h1>
-                <p className="text-muted-foreground">Trades, transfers, and internal movements from connected accounts.</p>
-            </div>
-
-            <TransactionHistory transactions={activities} />
+        <div className="flex min-h-[60vh] items-center justify-center bg-background">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
         </div>
     );
 }

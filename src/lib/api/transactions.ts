@@ -12,6 +12,13 @@ export interface InternalTransfer {
     timestamp: number;
     status: 'completed' | 'pending';
     txHash?: string;
+    fromConnectionId?: string;
+    toConnectionId?: string;
+    address?: string;
+    fee?: number;
+    feeAsset?: string;
+    feeUsd?: number;
+    sourceType?: 'cex' | 'dex' | 'wallet' | 'manual';
 }
 
 export type UnifiedActivity =
@@ -23,7 +30,8 @@ export type UnifiedActivity =
 export function processActivities(
     trades: Transaction[],
     transfers: CexTransfer[],
-    walletAddresses: { [address: string]: string }
+    walletAddresses: { [address: string]: string },
+    connectionNames: { [connectionId: string]: string } = {}
 ): UnifiedActivity[] {
     const activities: UnifiedActivity[] = [];
     const seenIds = new Set<string>();
@@ -65,17 +73,53 @@ export function processActivities(
 
         // Check A: Known Destination Address (Internal Transfer)
         if (t.type === 'Withdraw' && t.address && walletAddresses[t.address] && t.address.length > 5) {
+            const fromName = connectionNames[(t as any).connectionId] || 'Exchange';
+            const toName = walletAddresses[t.address];
             addActivity({
                 id: `internal-${t.id}`,
                 type: 'Internal',
                 activityType: 'internal',
                 asset: t.asset,
                 amount: t.amount,
-                from: 'Exchange',
-                to: walletAddresses[t.address],
+                from: fromName,
+                to: toName,
                 timestamp: t.timestamp,
                 status: t.status as any,
-                txHash: t.txHash
+                txHash: t.txHash,
+                fromConnectionId: (t as any).connectionId,
+                toConnectionId: undefined,
+                address: t.address,
+                fee: (t as any).fee,
+                feeAsset: (t as any).feeAsset,
+                feeUsd: (t as any).feeUsd,
+                sourceType: (t as any).sourceType || 'cex',
+            });
+            processedTransferIds.add(t.id);
+            continue;
+        }
+
+        // Check C: Explicit internal mapping from connector IDs
+        if ((t as any).isInternalTransfer || ((t as any).fromConnectionId && (t as any).toConnectionId)) {
+            const fromName = connectionNames[(t as any).fromConnectionId] || connectionNames[(t as any).connectionId] || 'Source';
+            const toName = connectionNames[(t as any).toConnectionId] || walletAddresses[(t as any).address || ''] || 'Destination';
+            addActivity({
+                id: `internal-explicit-${t.id}`,
+                type: 'Internal',
+                activityType: 'internal',
+                asset: t.asset,
+                amount: t.amount,
+                from: fromName,
+                to: toName,
+                timestamp: t.timestamp,
+                status: (t as any).status || 'completed',
+                txHash: t.txHash,
+                fromConnectionId: (t as any).fromConnectionId || (t as any).connectionId,
+                toConnectionId: (t as any).toConnectionId,
+                address: (t as any).address,
+                fee: (t as any).fee,
+                feeAsset: (t as any).feeAsset,
+                feeUsd: (t as any).feeUsd,
+                sourceType: (t as any).sourceType || 'cex',
             });
             processedTransferIds.add(t.id);
             continue;
@@ -106,11 +150,17 @@ export function processActivities(
                     activityType: 'internal',
                     asset: t.asset,
                     amount: match.amount,
-                    from: 'Exchange',
-                    to: 'Exchange',
+                    from: connectionNames[(t as any).connectionId] || 'Exchange',
+                    to: connectionNames[(match as any).connectionId] || 'Exchange',
                     timestamp: match.timestamp,
                     status: 'completed',
-                    txHash: t.txHash || match.txHash
+                    txHash: t.txHash || match.txHash,
+                    fromConnectionId: (t as any).connectionId,
+                    toConnectionId: (match as any).connectionId,
+                    fee: (t as any).fee,
+                    feeAsset: (t as any).feeAsset,
+                    feeUsd: (t as any).feeUsd,
+                    sourceType: (t as any).sourceType || 'cex',
                 });
                 processedTransferIds.add(t.id);
                 processedTransferIds.add(match.id);

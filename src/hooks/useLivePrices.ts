@@ -1,11 +1,22 @@
 import { useRealtimeMarket } from './useRealtimeMarket';
 import { normalizeSymbol } from '@/lib/utils/normalization';
+import { useMemo } from 'react';
 
 export function useLivePrices(symbols: string[]) {
-    // Pass empty array to get all prices, or optimize by passing normalized symbols if useRealtimeMarket supports filtering
-    // useRealtimeMarket currently subscribes to ALL if undefined/empty, or filters outputs.
-    // We want ALL prices so we can map WETH -> ETH
-    const { prices, stats } = useRealtimeMarket();
+    const requestedSymbols = useMemo(() => {
+        const out = new Set<string>();
+        (symbols || []).forEach((sym) => {
+            const norm = normalizeSymbol(sym);
+            if (norm) out.add(norm);
+            if (sym) out.add(sym);
+            if (norm === 'WETH') out.add('ETH');
+            if (norm === 'WBTC') out.add('BTC');
+        });
+        return Array.from(out);
+    }, [symbols]);
+
+    // Subscribe only to requested symbols to avoid full-market state churn.
+    const { prices, stats } = useRealtimeMarket(requestedSymbols);
 
     // Map prices to requested symbols
     const mappedPrices: Record<string, number> = {};

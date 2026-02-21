@@ -1,9 +1,42 @@
 import { PortfolioConnection } from '@/lib/api/types';
-import { WebSocketConnectionInfo, WebSocketMessage, WebSocketStatus, ReconnectionConfig, DEFAULT_RECONNECT_CONFIG } from './websocket-types';
+import { apiUrl } from '@/lib/api/client';
+import { WebSocketConnectionInfo, WebSocketMessage, WebSocketStatus, ReconnectionConfig, DEFAULT_RECONNECT_CONFIG, safeParseJson } from './websocket-types';
 import { WalletWebSocketManager } from './websocket-wallet';
+import { WS_ENDPOINTS } from './websocket-endpoints';
 import CryptoJS from 'crypto-js';
 
 type MessageHandler = (message: WebSocketMessage) => void;
+
+// Batch high-frequency updates (16ms = 60fps) for minimal latency
+const BATCH_MS = 16;
+const HIGH_FREQ_TYPES = new Set<WebSocketMessage['type']>(['allMids', 'marketStats', 'l2Book']);
+
+function createBatchedHandler(handler: MessageHandler): MessageHandler {
+    let pending: WebSocketMessage | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const flush = () => {
+        if (pending) {
+            handler(pending);
+            pending = null;
+        }
+        timer = null;
+    };
+
+    return (msg: WebSocketMessage) => {
+        if (!HIGH_FREQ_TYPES.has(msg.type)) {
+            if (timer) clearTimeout(timer);
+            timer = null;
+            pending = null;
+            handler(msg);
+            return;
+        }
+        pending = msg;
+        if (!timer) {
+            timer = setTimeout(flush, BATCH_MS);
+        }
+    };
+}
 type StatusHandler = (status: Map<string, WebSocketConnectionInfo>) => void;
 
 interface ActiveSocket {
@@ -21,10 +54,12 @@ export class EnhancedWebSocketManager {
     private connectionInfo: Map<string, WebSocketConnectionInfo> = new Map();
     private reconnectConfig: ReconnectionConfig;
     private walletManager: WalletWebSocketManager;
+    private l2BookSubscriptions: Set<string> = new Set();
+    private onMessage: MessageHandler;
 
     constructor(
         private connections: PortfolioConnection[],
-        private onMessage: MessageHandler,
+        onMessage: MessageHandler,
         private onStatusChange?: StatusHandler,
         reconnectConfig?: Partial<ReconnectionConfig>,
         private universalMode: boolean = false
@@ -32,12 +67,11 @@ export class EnhancedWebSocketManager {
         this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...reconnectConfig };
         console.log(`[WS Manager] New Instance Created. Universal: ${this.universalMode}`);
 
-        // Initialize Wallet Manager
-        this.walletManager = new WalletWebSocketManager((msg) => {
-            // Forward wallet messages to main handler
-            this.onMessage(msg);
+        // Batched handler for high-frequency updates (allMids, marketStats, l2Book)
+        this.onMessage = createBatchedHandler(onMessage);
 
-            // Update status for wallet connections implicitly if we receive data
+        this.walletManager = new WalletWebSocketManager((msg) => {
+            this.onMessage(msg);
             if (msg.connectionId) {
                 this.updateConnectionStatus(msg.connectionId, 'connected');
             }
@@ -146,7 +180,7 @@ export class EnhancedWebSocketManager {
     private async connectBinance(conn: PortfolioConnection) {
         try {
             // 1. Spot ListenKey
-            const spotRes = await fetch('/api/binance/listen-key', {
+            const spotRes = await fetch(apiUrl('/api/binance/listen-key'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey: conn.apiKey, apiSecret: conn.secret })
@@ -154,7 +188,7 @@ export class EnhancedWebSocketManager {
             const spotData = await spotRes.json();
 
             if (spotData.listenKey) {
-                const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${spotData.listenKey}`);
+                const ws = new WebSocket(`${WS_ENDPOINTS.binance.wsSpot}/${spotData.listenKey}`);
                 const socketId = `${conn.id}_spot`;
 
                 ws.onopen = () => {
@@ -177,7 +211,8 @@ export class EnhancedWebSocketManager {
 
                 ws.onmessage = (event) => {
                     const startTime = Date.now();
-                    this.handleBinanceMessage(JSON.parse(event.data), conn, 'Spot');
+                    const data = safeParseJson(event.data);
+                    if (data) this.handleBinanceMessage(data, conn, 'Spot');
                     const latency = Date.now() - startTime;
                     this.updateConnectionStatus(conn.id, 'connected', undefined, latency);
                 };
@@ -185,12 +220,12 @@ export class EnhancedWebSocketManager {
                 // ListenKey keepalive
                 const keepAlive = setInterval(async () => {
                     try {
-                        await fetch('/api/binance/listen-key', {
+                        await fetch(apiUrl('/api/binance/listen-key'), {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ apiKey: conn.apiKey, listenKey: spotData.listenKey })
                         });
-                    } catch (e) {
+                    } catch (_e) {
                         console.error(`[Binance] Failed to refresh ListenKey for ${conn.name}`);
                     }
                 }, 1000 * 60 * 30); // 30 minutes
@@ -205,7 +240,7 @@ export class EnhancedWebSocketManager {
             }
 
             // 2. Futures ListenKey 
-            const futuresRes = await fetch('/api/binance/listen-key-futures', {
+            const _futuresRes = await fetch(apiUrl('/api/binance/listen-key-futures'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey: conn.apiKey, apiSecret: conn.secret })
@@ -215,7 +250,7 @@ export class EnhancedWebSocketManager {
             // The previous file had 'marketType: futures' body in /api/binance/listen-key. I'll use that.
 
             /* 
-            const futuresRes = await fetch('/api/binance/listen-key', {
+            const futuresRes = await fetch(apiUrl('/api/binance/listen-key'), {
                  method: 'POST',
                  headers: { 'Content-Type': 'application/json' },
                  body: JSON.stringify({ apiKey: conn.apiKey, apiSecret: conn.secret, marketType: 'futures' })
@@ -224,7 +259,7 @@ export class EnhancedWebSocketManager {
             // Actually, let's trust the previous implementation details if I had them. 
             // In the view_file #3010, lines 177-181 showed it using 'marketType: futures' and the same endpoint.
 
-            const futuresRes2 = await fetch('/api/binance/listen-key', {
+            const futuresRes2 = await fetch(apiUrl('/api/binance/listen-key'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey: conn.apiKey, apiSecret: conn.secret, marketType: 'futures' })
@@ -233,7 +268,7 @@ export class EnhancedWebSocketManager {
             const futuresData = await futuresRes2.json();
 
             if (futuresData.listenKey) {
-                const wsFutures = new WebSocket(`wss://fstream.binance.com/ws/${futuresData.listenKey}`);
+                const wsFutures = new WebSocket(`${WS_ENDPOINTS.binance.ws}/${futuresData.listenKey}`);
                 const socketIdFutures = `${conn.id}_futures`;
 
                 wsFutures.onopen = () => {
@@ -252,7 +287,8 @@ export class EnhancedWebSocketManager {
 
                 wsFutures.onmessage = (event) => {
                     const startTime = Date.now();
-                    this.handleBinanceMessage(JSON.parse(event.data), conn, 'Futures');
+                    const data = safeParseJson(event.data);
+                    if (data) this.handleBinanceMessage(data, conn, 'Futures');
                     const latency = Date.now() - startTime;
                     this.updateConnectionStatus(conn.id, 'connected', undefined, latency);
                 };
@@ -260,7 +296,7 @@ export class EnhancedWebSocketManager {
                 // ListenKey keepalive
                 const keepAlive = setInterval(async () => {
                     try {
-                        await fetch('/api/binance/listen-key', {
+                        await fetch(apiUrl('/api/binance/listen-key'), {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -269,7 +305,7 @@ export class EnhancedWebSocketManager {
                                 listenKey: futuresData.listenKey
                             })
                         });
-                    } catch (e) {
+                    } catch (_e) {
                         console.warn(`[Binance Futures] Failed to refresh ListenKey for ${conn.name}`);
                     }
                 }, 1000 * 60 * 30);
@@ -331,7 +367,7 @@ export class EnhancedWebSocketManager {
 
     // --- BYBIT ---
     private async connectBybit(conn: PortfolioConnection) {
-        const ws = new WebSocket('wss://stream.bybit.com/v5/private');
+        const ws = new WebSocket(WS_ENDPOINTS.bybit.wsPrivate);
         const socketId = conn.id;
 
         ws.onopen = () => {
@@ -380,8 +416,8 @@ export class EnhancedWebSocketManager {
         };
 
         ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            if (msg.op !== 'auth' && msg.op !== 'subscribe') {
+            const msg = safeParseJson<{ op?: string }>(event.data);
+            if (msg && msg.op !== 'auth' && msg.op !== 'subscribe') {
                 this.handleBybitMessage(msg, conn);
             }
         };
@@ -435,7 +471,7 @@ export class EnhancedWebSocketManager {
 
     // --- HYPERLIQUID ---
     private async connectHyperliquid(conn: PortfolioConnection) {
-        const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
+        const ws = new WebSocket(WS_ENDPOINTS.hyperliquid.ws);
         const socketId = conn.id;
 
         // Heartbeat timer
@@ -485,7 +521,8 @@ export class EnhancedWebSocketManager {
         };
 
         ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
+            const msg = safeParseJson<{ channel?: string; data?: unknown }>(event.data);
+            if (!msg) return;
 
             if (msg.channel === 'clearinghouseState') {
                 this.onMessage({
@@ -496,10 +533,10 @@ export class EnhancedWebSocketManager {
                     timestamp: Date.now()
                 });
             } else if (msg.channel === 'userFills') {
-                const fills = msg.data;
-                if (fills && fills.isSnapshot) {
+                const fills = msg.data as { isSnapshot?: boolean; fills?: Array<{ oid: number; coin: string; side: string; px: string; sz: string; time: number }> } | undefined;
+                if (fills?.isSnapshot) {
                     // Initial snapshot
-                } else if (fills && fills.fills) {
+                } else if (fills?.fills) {
                     const transactions = fills.fills.map((f: any) => ({
                         id: f.oid.toString(),
                         symbol: f.coin,
@@ -536,7 +573,7 @@ export class EnhancedWebSocketManager {
         const socketId = 'hyperliquid_universal';
         if (this.sockets.has(socketId)) return;
 
-        const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
+        const ws = new WebSocket(WS_ENDPOINTS.hyperliquid.ws);
 
         // Heartbeat
         let heartbeat: NodeJS.Timeout | undefined;
@@ -559,6 +596,14 @@ export class EnhancedWebSocketManager {
                 subscription: { type: 'webData2', user: '0x0000000000000000000000000000000000000000' }
             }));
 
+            // 3. Resubscribe to existing L2 Book subscriptions
+            this.l2BookSubscriptions.forEach(coin => {
+                ws.send(JSON.stringify({
+                    method: 'subscribe',
+                    subscription: { type: 'l2Book', coin }
+                }));
+            });
+
             // Start Heartbeat
             heartbeat = setInterval(() => {
                 if (ws.readyState === WebSocket.OPEN) {
@@ -567,20 +612,23 @@ export class EnhancedWebSocketManager {
             }, 30000);
         };
 
+        ws.onerror = () => {
+            console.warn(`[Hyperliquid Universal] WebSocket error`);
+        };
+
         ws.onclose = () => {
             console.log(`[Hyperliquid Universal] Disconnected`);
             if (heartbeat) clearInterval(heartbeat);
             this.sockets.delete(socketId);
-            // Auto reconnect universal after 5s
             setTimeout(() => this.connectHyperliquidUniversal(), 5000);
         };
 
         ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
+            const msg = safeParseJson<{ channel?: string; data?: { mids?: Record<string, string> } }>(event.data);
+            if (!msg) return;
             const now = Date.now();
 
-            if (msg.channel === 'allMids') {
-                // Format: { "BTC": "65000.5", "ETH": "3500.2", ... }
+            if (msg.channel === 'allMids' && msg.data?.mids) {
                 this.onMessage({
                     source: 'Hyperliquid',
                     connectionId: 'universal',
@@ -590,12 +638,19 @@ export class EnhancedWebSocketManager {
                 });
             }
             else if (msg.channel === 'webData2') {
-                // Contains comprehensive stats
-                // We forward it raw or parsed. Let's send raw to hook for processing efficiency.
                 this.onMessage({
                     source: 'Hyperliquid',
                     connectionId: 'universal',
                     type: 'marketStats',
+                    data: msg.data,
+                    timestamp: now
+                });
+            }
+            else if (msg.channel === 'l2Book') {
+                this.onMessage({
+                    source: 'Hyperliquid',
+                    connectionId: 'universal',
+                    type: 'l2Book',
                     data: msg.data,
                     timestamp: now
                 });
@@ -648,6 +703,28 @@ export class EnhancedWebSocketManager {
             if (socket.reconnectTimer) clearTimeout(socket.reconnectTimer);
             this.sockets.delete(socketId);
             console.log(`[WS Manager] Disconnected socket: ${socketId}`);
+        }
+    }
+
+    public subscribeL2Book(coin: string) {
+        this.l2BookSubscriptions.add(coin);
+        const socket = this.sockets.get('hyperliquid_universal');
+        if (socket && socket.ws.readyState === WebSocket.OPEN) {
+            socket.ws.send(JSON.stringify({
+                method: 'subscribe',
+                subscription: { type: 'l2Book', coin }
+            }));
+        }
+    }
+
+    public unsubscribeL2Book(coin: string) {
+        this.l2BookSubscriptions.delete(coin);
+        const socket = this.sockets.get('hyperliquid_universal');
+        if (socket && socket.ws.readyState === WebSocket.OPEN) {
+            socket.ws.send(JSON.stringify({
+                method: 'unsubscribe',
+                subscription: { type: 'l2Book', coin }
+            }));
         }
     }
 

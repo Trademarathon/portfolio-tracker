@@ -6,40 +6,26 @@ import { useMarketsData } from "@/hooks/useMarketsData";
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-    Search,
     Globe,
     Zap,
     Activity,
     LineChart,
     BarChart3
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { PageWrapper } from "@/components/Layout/PageWrapper";
+import { ComponentSettingsLink } from "@/components/ui/ComponentSettingsLink";
 
 export default function MarketsPage() {
-    const { data: marketItems, isLoading } = useMarketsData();
+    const { data: marketItems } = useMarketsData();
     const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-    const [search, setSearch] = useState("");
-
-    const allSymbols = useMemo(() => {
-        if (!marketItems) return [];
-        return marketItems.map(m => m.symbol);
-    }, [marketItems]);
-
-    const filteredSymbols = useMemo(() => {
-        if (!search) return allSymbols;
-        return allSymbols.filter(s => s.toLowerCase().includes(search.toLowerCase()));
-    }, [allSymbols, search]);
-
-    // Limit to first 100 to avoid performance kill on initial load
-    // A virtualized table would be better for 500+, but for now Slice is safer.
-    const displaySymbols = useMemo(() => filteredSymbols.slice(0, 50), [filteredSymbols]);
 
     // Calculate counts
+    const allSymbolsCount = marketItems?.length || 0;
     const perpCount = useMemo(() => marketItems?.filter(m => m.types.includes('perp')).length || 0, [marketItems]);
     const spotCount = useMemo(() => marketItems?.filter(m => m.types.includes('spot')).length || 0, [marketItems]);
 
     return (
-        <div className="space-y-6">
+        <PageWrapper className="flex flex-col gap-6 px-4 md:px-12 pt-6 pb-24 max-w-none">
             {/* Header / Hero Section */}
             <div className="relative rounded-3xl overflow-hidden bg-zinc-900/50 border border-white/5 p-8">
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent backdrop-blur-3xl" />
@@ -53,9 +39,10 @@ export default function MarketsPage() {
                             <h1 className="text-3xl font-serif font-black tracking-tight text-white">
                                 Global Markets
                             </h1>
+                            <ComponentSettingsLink tab="general" size="xs" title="Chart settings" />
                         </div>
                         <p className="text-zinc-400 max-w-lg">
-                            Explore <span className="italic font-serif text-zinc-400">real-time data</span> for <span className="text-white font-bold">{allSymbols.length}</span> active markets.
+                            Explore <span className="italic font-serif text-zinc-400">real-time data</span> for <span className="text-white font-bold">{allSymbolsCount}</span> active markets.
                             Including Hyperliquid HIP-3 deployments.
                         </p>
                     </div>
@@ -83,32 +70,11 @@ export default function MarketsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Table Area */}
                 <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center gap-4 p-4 rounded-xl bg-black/40 border border-white/5">
-                        <Search className="h-4 w-4 text-zinc-500" />
-                        <Input
-                            placeholder="Search by symbol..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className="bg-transparent border-none focus-visible:ring-0 text-sm h-auto p-0 placeholder:text-zinc-600"
-                        />
-                        <div className="text-xs text-zinc-600 font-mono">
-                            Showing {displaySymbols.length} of {filteredSymbols.length}
-                        </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/20 backdrop-blur-sm">
+                    <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/20 backdrop-blur-sm h-[800px]">
                         <MarketTable
-                            symbols={displaySymbols}
                             selectedSymbol={selectedSymbol || ""}
                             onSelect={setSelectedSymbol}
                         />
-                        {filteredSymbols.length > 50 && (
-                            <div className="p-4 text-center border-t border-white/5">
-                                <span className="text-xs text-zinc-500 italic">
-                                    Search to see more specific results...
-                                </span>
-                            </div>
-                        )}
                     </div>
                 </div>
 
@@ -118,16 +84,26 @@ export default function MarketsPage() {
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="sticky top-6 rounded-2xl overflow-hidden border border-white/10 bg-black/40 h-[600px] flex flex-col"
+                            className="sticky top-6 rounded-2xl overflow-hidden border border-white/10 bg-black/40 h-[800px] flex flex-col"
                         >
                             <div className="p-4 border-b border-white/10 flex items-center justify-between bg-zinc-900/50">
                                 <div className="flex items-center gap-2">
-                                    <LineChart className="h-4 w-4 text-primary" />
-                                    <span className="font-bold text-white">{selectedSymbol}/USD</span>
+                                    <div className="p-1 rounded-md bg-primary/10 text-primary">
+                                        <LineChart className="h-4 w-4" />
+                                    </div>
+                                    <span className="font-bold text-white">{selectedSymbol.split('-')[0]}/USD</span>
                                 </div>
                             </div>
                             <div className="flex-1 relative">
-                                <TradingViewChart symbol={selectedSymbol} />
+                                <TradingViewChart symbol={(() => {
+                                    const parts = selectedSymbol.split('-');
+                                    const sym = parts[0];
+                                    const ex = parts[1]?.toUpperCase();
+                                    if (ex === 'BINANCE') return `BINANCE:${sym}USDT`;
+                                    if (ex === 'BYBIT') return `BYBIT:${sym}USDT`;
+                                    if (ex === 'HYPERLIQUID') return `HYPERLIQUID:${sym}`;
+                                    return sym;
+                                })()} />
                             </div>
                         </motion.div>
                     ) : (
@@ -143,6 +119,6 @@ export default function MarketsPage() {
                     )}
                 </div>
             </div>
-        </div>
+        </PageWrapper>
     );
 }

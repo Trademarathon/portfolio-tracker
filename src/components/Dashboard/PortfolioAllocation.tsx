@@ -9,7 +9,8 @@ interface AllocationViewProps {
     assets: any[];
 }
 
-export function PortfolioAllocation({ assets }: AllocationViewProps) {
+export function PortfolioAllocation({ assets: assetsProp }: AllocationViewProps) {
+    const assets = Array.isArray(assetsProp) ? assetsProp : [];
     // Group by simple categories: Stables vs Volatile
     const categoryDataMap: Record<string, number> = {
         "Stables": 0,
@@ -36,10 +37,10 @@ export function PortfolioAllocation({ assets }: AllocationViewProps) {
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="bg-card/30 backdrop-blur-xl border-white/5 overflow-hidden">
+            <Card className="bg-zinc-950/40 border-white/10 overflow-hidden">
                 <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold flex items-center gap-2 text-muted-foreground uppercase tracking-wider">
-                        <Layers className="h-4 w-4 text-primary" />
+                    <CardTitle className="text-xs font-bold flex items-center gap-2 text-zinc-500 uppercase tracking-[0.2em]">
+                        <Layers className="h-4 w-4 text-zinc-300" />
                         Asset Allocation
                     </CardTitle>
                 </CardHeader>
@@ -72,42 +73,42 @@ export function PortfolioAllocation({ assets }: AllocationViewProps) {
                             <div key={item.name} className="flex flex-col items-center">
                                 <div className="flex items-center gap-1.5 mb-1">
                                     <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                                    <span className="text-[10px] font-bold text-muted-foreground uppercase">{item.name}</span>
+                                    <span className="text-[10px] font-bold text-zinc-500 uppercase">{item.name}</span>
                                 </div>
-                                <span className="text-sm font-bold">{((item.value / categoryData.reduce((a, b) => a + b.value, 0)) * 100).toFixed(1)}%</span>
+                                <span className="text-sm font-bold text-white">{((item.value / categoryData.reduce((a, b) => a + b.value, 0)) * 100).toFixed(1)}%</span>
                             </div>
                         ))}
                     </div>
                 </CardContent>
             </Card>
 
-            <Card className="bg-card/30 backdrop-blur-xl border-white/5 overflow-hidden relative group">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+            <Card className="bg-zinc-950/40 border-white/10 overflow-hidden relative group">
+                <div className="absolute top-0 right-0 p-4 opacity-5">
                     <ShieldCheck className="h-32 w-32" />
                 </div>
                 <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold flex items-center gap-2 text-muted-foreground uppercase tracking-wider">
-                        <Globe className="h-4 w-4 text-emerald-500" />
+                    <CardTitle className="text-xs font-bold flex items-center gap-2 text-zinc-500 uppercase tracking-[0.2em]">
+                        <Globe className="h-4 w-4 text-zinc-300" />
                         Smart Insights
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
-                        <p className="text-xs font-bold text-primary mb-1 uppercase tracking-widest">Portfolio Health</p>
-                        <p className="text-sm font-medium">Your portfolio is well-diversified across {categoryData.length} asset classes.</p>
+                    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+                        <p className="text-[10px] font-black text-zinc-500 mb-1 uppercase tracking-[0.2em]">Portfolio Health</p>
+                        <p className="text-sm font-medium text-white">Your portfolio is well-diversified across {categoryData.length} asset classes.</p>
                     </div>
                     <div className="space-y-3">
                         <div className="flex gap-3">
                             <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                            <p className="text-xs text-muted-foreground italic">Strong stablecoin buffer detected ({((categoryDataMap["Stables"] / categoryData.reduce((a, b) => a + (b.value || 0), 0)) * 100).toFixed(1)}%). Ready for market opportunities.</p>
+                            <p className="text-xs text-zinc-500 italic">Strong stablecoin buffer detected ({((categoryDataMap["Stables"] / categoryData.reduce((a, b) => a + (b.value || 0), 0)) * 100).toFixed(1)}%). Ready for market opportunities.</p>
                         </div>
                         <div className="flex gap-3">
                             <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                            <p className="text-xs text-muted-foreground italic">Exposure to Bluechips (BTC/ETH) is optimal at 45% of volatile holdings.</p>
+                            <p className="text-xs text-zinc-500 italic">Exposure to Bluechips (BTC/ETH) is optimal at 45% of volatile holdings.</p>
                         </div>
                         <div className="flex gap-3">
                             <div className="h-2 w-2 rounded-full bg-amber-500 mt-1.5 shrink-0" />
-                            <p className="text-xs text-muted-foreground italic">Recommendation: Consider rebalancing some Altcoin gains into BTC as dominance increases.</p>
+                            <p className="text-xs text-zinc-500 italic">Recommendation: Consider rebalancing some Altcoin gains into BTC as dominance increases.</p>
                         </div>
                     </div>
                 </CardContent>

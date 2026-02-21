@@ -1,21 +1,32 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Urbanist } from "next/font/google"; // Added Urbanist
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Layout/Sidebar";
-import MobileNav from "@/components/Layout/MobileNav";
+import SidebarLayout from "@/components/Layout/SidebarLayout";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
-const urbanist = Urbanist({ subsets: ["latin"], variable: "--font-urbanist" }); // Configure Urbanist
+// Primary font - Clean, modern, highly legible
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: 'swap',
+});
+
+// Monospace font - For numbers, code, prices
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
-  title: "Crypto Portfolio Tracker",
+  title: "Trade Marathon®",
   description: "Premium Crypto Analytics & Trading Journal",
+  icons: { icon: "/trade-marathon-logo.png" },
 };
 
 import { Providers } from "./providers";
 
 import { ErrorSuppressor } from "@/components/ErrorSuppressor";
+import { KeyedChildren } from "@/components/Layout/KeyedChildren";
 
 export default function RootLayout({
   children,
@@ -23,20 +34,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html key="root-html" lang="en" suppressHydrationWarning>
       <body
-        className={`${urbanist.className} ${urbanist.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen bg-background text-foreground`}
+        className={`${inter.className} ${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-background text-foreground`}
       >
-        <ErrorSuppressor />
-        <Providers>
-          <Sidebar className="hidden md:flex fixed left-0 top-0" />
-          <MobileNav />
-          <main className="pl-0 md:pl-64 transition-all duration-300">
-            <div className="flex min-h-screen flex-col p-4 md:p-6 lg:p-8">
-              {children}
-            </div>
-          </main>
-        </Providers>
+        <div key="root-layout-wrapper">
+          <ErrorSuppressor key="error-suppressor" />
+          <Providers key="app-providers">
+            <SidebarLayout key="sidebar-layout">
+              <KeyedChildren key="keyed-children">{children}</KeyedChildren>
+            </SidebarLayout>
+          </Providers>
+        </div>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { formatCurrency, formatPercentage } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Activity, DollarSign, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,7 @@ interface DashboardStatsProps {
     activePositions?: number;
 }
 
-export function DashboardStats({ totalValue, totalPnlUsd, totalPnlPercent, totalVolume = 0, activePositions = 0 }: DashboardStatsProps) {
+export const DashboardStats = memo(({ totalValue, totalPnlUsd, totalPnlPercent, totalVolume = 0, activePositions = 0 }: DashboardStatsProps) => {
 
     const stats = [
         {
@@ -23,7 +23,7 @@ export function DashboardStats({ totalValue, totalPnlUsd, totalPnlPercent, total
             changeLabel: "24h Change",
             icon: Wallet,
             gradient: "from-[var(--trade-purple)] to-[var(--trade-orange)]",
-            glow: "shadow-[0_0_20px_-5px_rgba(127,106,255,0.3)]"
+            glow: "shadow-[0_0_40px_-12px_rgba(127,106,255,0.2),0_0_72px_-20px_rgba(127,106,255,0.1)]"
         },
         {
             label: "24h PnL",
@@ -32,7 +32,7 @@ export function DashboardStats({ totalValue, totalPnlUsd, totalPnlPercent, total
             changeLabel: "Today",
             icon: DollarSign,
             gradient: "from-emerald-500 to-teal-400",
-            glow: "shadow-[0_0_20px_-5px_rgba(16,185,129,0.3)]"
+            glow: "shadow-[0_0_40px_-12px_rgba(16,185,129,0.2),0_0_72px_-20px_rgba(16,185,129,0.1)]"
         },
         {
             label: "24h Volume",
@@ -40,7 +40,7 @@ export function DashboardStats({ totalValue, totalPnlUsd, totalPnlPercent, total
             subValue: "Global Market",
             icon: Activity,
             gradient: "from-blue-500 to-cyan-400",
-            glow: "shadow-[0_0_20px_-5px_rgba(59,130,246,0.3)]"
+            glow: "shadow-[0_0_40px_-12px_rgba(59,130,246,0.2),0_0_72px_-20px_rgba(59,130,246,0.1)]"
         },
         {
             label: "Active Positions",
@@ -48,7 +48,7 @@ export function DashboardStats({ totalValue, totalPnlUsd, totalPnlPercent, total
             subValue: "Open Trades",
             icon: TrendingUp,
             gradient: "from-orange-500 to-red-400",
-            glow: "shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]"
+            glow: "shadow-[0_0_40px_-12px_rgba(249,115,22,0.2),0_0_72px_-20px_rgba(249,115,22,0.1)]"
         }
     ];
 
@@ -104,4 +104,4 @@ export function DashboardStats({ totalValue, totalPnlUsd, totalPnlPercent, total
             ))}
         </div>
     );
-}
+});

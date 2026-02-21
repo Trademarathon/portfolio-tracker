@@ -60,7 +60,7 @@ export default function SessionAnalysis({ dayOfWeek, timeOfDay }: SessionAnalysi
     return (
         <div className="grid gap-4 md:grid-cols-2">
             {/* Day of Week PNL */}
-            <Card className="bg-zinc-900/50 border-white/5 overflow-hidden">
+            <Card className="neo-card bg-zinc-900/50 border-white/5 overflow-hidden">
                 <CardHeader className="pb-2">
                     <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Day of Week Performance</CardTitle>
                 </CardHeader>
@@ -87,7 +87,7 @@ export default function SessionAnalysis({ dayOfWeek, timeOfDay }: SessionAnalysi
             </Card>
 
             {/* Time of Day PNL */}
-            <Card className="bg-zinc-900/50 border-white/5 overflow-hidden">
+            <Card className="neo-card bg-zinc-900/50 border-white/5 overflow-hidden">
                 <CardHeader className="pb-2">
                     <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Time of Day (UTC)</CardTitle>
                 </CardHeader>
