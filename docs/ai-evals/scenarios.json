@@ -1,0 +1,118 @@
+{
+  "scenarios": [
+    {
+      "id": "fresh-warning-allow",
+      "feature": "feed_summary_overview",
+      "context": {
+        "snapshotAgeMs": 120000,
+        "dataCoverage": 0.92,
+        "riskSeverity": "warning",
+        "sources": ["portfolio-assets", "portfolio-positions"]
+      },
+      "contract": {
+        "risk": "Concentration remains elevated in top holdings.",
+        "action": "Trim top exposure by 5% and rebalance.",
+        "confidence": 0.79,
+        "evidence": ["Top holding is 42% of tracked value", "HHI is 0.29"],
+        "expiresAtOffsetMs": 300000
+      },
+      "contractStatus": "validated",
+      "expectedVerdict": "warn"
+    },
+    {
+      "id": "stale-context-block",
+      "feature": "feed_summary_overview",
+      "context": {
+        "snapshotAgeMs": 3600000,
+        "dataCoverage": 0.9,
+        "riskSeverity": "warning",
+        "sources": ["portfolio-assets", "portfolio-positions", "portfolio-activities"]
+      },
+      "contract": {
+        "risk": "Leverage stress is rising in two open positions.",
+        "action": "Reduce leverage to under 6x before adding size.",
+        "confidence": 0.84,
+        "evidence": ["Max leverage is 9.2x", "Closest liquidation distance is 12%"],
+        "expiresAtOffsetMs": 300000
+      },
+      "contractStatus": "validated",
+      "expectedVerdict": "block"
+    },
+    {
+      "id": "low-confidence-block",
+      "feature": "overview_pulse",
+      "context": {
+        "snapshotAgeMs": 60000,
+        "dataCoverage": 0.88,
+        "riskSeverity": "warning",
+        "sources": ["portfolio-assets"]
+      },
+      "contract": {
+        "risk": "Portfolio volatility could increase.",
+        "action": "Review risk settings.",
+        "confidence": 0.31,
+        "evidence": ["Top holdings changed this session", "Volatility rose versus baseline"],
+        "expiresAtOffsetMs": 300000
+      },
+      "contractStatus": "validated",
+      "expectedVerdict": "block"
+    },
+    {
+      "id": "evidence-missing-block",
+      "feature": "futures_risk",
+      "context": {
+        "snapshotAgeMs": 120000,
+        "dataCoverage": 0.82,
+        "riskSeverity": "critical",
+        "sources": ["portfolio-positions"]
+      },
+      "contract": {
+        "risk": "Liquidation risk is concentrated in one 15x position.",
+        "action": "Cut leverage and place protective stop immediately.",
+        "confidence": 0.9,
+        "evidence": ["Max leverage is 15x"],
+        "expiresAtOffsetMs": 120000
+      },
+      "contractStatus": "validated",
+      "expectedVerdict": "block"
+    },
+    {
+      "id": "coverage-block",
+      "feature": "feed_summary_balances",
+      "context": {
+        "snapshotAgeMs": 120000,
+        "dataCoverage": 0.32,
+        "riskSeverity": "warning",
+        "sources": ["portfolio-assets"]
+      },
+      "contract": {
+        "risk": "Transfer risk may be uneven across routes.",
+        "action": "Split transfer flow until route metrics stabilize.",
+        "confidence": 0.8,
+        "evidence": ["Top route share is 74%", "Recent fee load is 61 bps"],
+        "expiresAtOffsetMs": 240000
+      },
+      "contractStatus": "validated",
+      "expectedVerdict": "block"
+    },
+    {
+      "id": "fallback-block",
+      "feature": "feed_summary_spot",
+      "context": {
+        "snapshotAgeMs": 180000,
+        "dataCoverage": 0.74,
+        "riskSeverity": "warning",
+        "sources": ["portfolio-assets", "portfolio-positions"]
+      },
+      "contract": {
+        "risk": "Risk clarity is limited.",
+        "action": "Refresh positions and retry AI summary.",
+        "confidence": 0.34,
+        "evidence": [],
+        "expiresAtOffsetMs": 120000
+      },
+      "contractStatus": "fallback",
+      "expectedVerdict": "block"
+    }
+  ]
+}

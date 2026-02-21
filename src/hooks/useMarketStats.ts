@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ultraFetch, getLatencyTracker, ULTRA_CONFIG, globalRequestQueue } from '@/lib/ultraFast';
+import { getLatencyTracker, globalRequestQueue } from '@/lib/ultraFast';
+import { getHyperliquidPerpsMetaAndCtxs, getHyperliquidNotionalVolumeUsd } from '@/lib/api/hyperliquid';
 
 export interface MarketStats {
     symbol: string;
@@ -22,20 +23,13 @@ export function useMarketStats() {
             const tracker = getLatencyTracker('hyperliquid-market-stats');
             const start = performance.now();
             try {
-                // Fetching from Hyperliquid as a proxy for perp stats (they have good coverage of major assets)
-                const response = await ultraFetch("https://api.hyperliquid.xyz/info", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ type: "metaAndAssetCtxs" }),
-                });
+                // Official info endpoint: meta + asset context tuple.
+                const data = await getHyperliquidPerpsMetaAndCtxs();
                 tracker.add(Math.round(performance.now() - start));
+                if (!data) throw new Error("Failed to fetch market stats");
 
-                if (!response.ok) throw new Error("Failed to fetch market stats");
-
-                const data = await response.json();
-                // data = [meta, assetCtxs]
-                const universe = data[0].universe;
-                const assetCtxs = data[1];
+                const universe = data.meta.universe;
+                const assetCtxs = data.ctxs;
 
                 const newStats: Record<string, MarketStats> = {};
 
@@ -43,11 +37,11 @@ export function useMarketStats() {
                     const ctx = assetCtxs[index];
                     if (!ctx) return;
 
-                    const price = parseFloat(ctx.markPx);
-                    const funding = parseFloat(ctx.funding);
-                    const openInterest = parseFloat(ctx.openInterest) * price;
-                    const prevDayPx = parseFloat(ctx.prevDayPx);
-                    const dayNfv = parseFloat(ctx.dayNfv);
+                    const price = parseFloat(ctx.markPx || "0");
+                    const funding = parseFloat(ctx.funding || "0");
+                    const openInterest = parseFloat(ctx.openInterest || "0") * price;
+                    const prevDayPx = parseFloat(ctx.prevDayPx || "0");
+                    const volume24h = getHyperliquidNotionalVolumeUsd(ctx);
 
                     // Calculate 24h change correctly from real data
                     const change24h = prevDayPx > 0 ? ((price / prevDayPx) - 1) * 100 : 0;
@@ -66,7 +60,7 @@ export function useMarketStats() {
                         openInterest,
                         fundingRate24h: funding * 24,
                         priceChange1h: change1h,
-                        volume24h: dayNfv
+                        volume24h
                     };
                 });
 

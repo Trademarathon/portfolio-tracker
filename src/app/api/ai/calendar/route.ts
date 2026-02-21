@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  executeAIChat,
+  resolveAICredentialsFromHeaders,
+} from "@/lib/server/ai-gateway";
 
 type CalendarEvent = {
   id: string;
@@ -8,16 +12,49 @@ type CalendarEvent = {
   category: "crypto" | "macro";
   country?: string;
   isLive?: boolean;
-  source: "gemini";
+  source: "openai" | "gemini" | "ollama";
 };
 
 const CACHE_TTL_MS = 90_000;
 let cache: { ts: number; events: CalendarEvent[] } | null = null;
 
-function parseEvents(raw: unknown): CalendarEvent[] {
-  if (!Array.isArray(raw)) return [];
+function extractJsonPayload(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/, "");
+    try {
+      return JSON.parse(fenced);
+    } catch {
+      const arrayMatch = fenced.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          return JSON.parse(arrayMatch[0]);
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    }
+  }
+}
+
+function parseEvents(
+  raw: unknown,
+  source: "openai" | "gemini" | "ollama"
+): CalendarEvent[] {
+  const input =
+    raw && typeof raw === "object" && Array.isArray((raw as { events?: unknown }).events)
+      ? (raw as { events: unknown[] }).events
+      : raw;
+  if (!Array.isArray(input)) return [];
   const now = Date.now();
-  return raw
+  return input
     .map((e) => ({
       id: String(e.id || `${e.title}-${e.timestamp}`),
       title: String(e.title || "Event"),
@@ -26,18 +63,14 @@ function parseEvents(raw: unknown): CalendarEvent[] {
       category: (String(e.category || "crypto").toLowerCase() as CalendarEvent["category"]) || "crypto",
       country: e.country ? String(e.country) : undefined,
       isLive: Boolean(e.isLive),
-      source: "gemini" as const,
+      source,
     }))
     .filter((e) => Number.isFinite(e.timestamp) && e.timestamp > now - 6 * 60 * 60 * 1000)
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 export async function POST(req: Request) {
-  const headers = req.headers;
-  const geminiKey = headers.get("x-gemini-api-key") || "";
-  if (!geminiKey) {
-    return NextResponse.json({ events: [], stale: true, error: "Missing Gemini API key" }, { status: 200 });
-  }
+  const creds = resolveAICredentialsFromHeaders((name) => req.headers.get(name));
 
   const { horizonHours = 48, maxItems = 12 } = (await req.json().catch(() => ({}))) as {
     horizonHours?: number;
@@ -59,34 +92,58 @@ export async function POST(req: Request) {
     `Horizon: next ${horizonHours} hours. Max ${maxItems} items.`,
   ].join("\n");
 
-  const body = {
-    contents: [
-      { role: "user", parts: [{ text: system }] },
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 512,
-      responseMimeType: "application/json",
-    },
-  };
-
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    const aiResult = await executeAIChat(
+      {
+        provider: "auto",
+        temperature: 0.2,
+        maxTokens: 700,
+        jsonMode: true,
+        messages: [{ role: "user", content: system }],
+      },
+      creds
     );
-    if (!res.ok) throw new Error(await res.text());
-    const json = await res.json();
-    const text =
-      json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") ||
-      "[]";
-    const parsed = parseEvents(JSON.parse(text));
+    if (!aiResult.ok) {
+      if (cache) {
+        return NextResponse.json(
+          {
+            events: cache.events,
+            stale: true,
+            lastUpdated: cache.ts,
+            error: aiResult.error,
+          },
+          { status: 200 }
+        );
+      }
+      return NextResponse.json(
+        { events: [], stale: true, lastUpdated: Date.now(), error: aiResult.error },
+        { status: 200 }
+      );
+    }
+
+    const parsed = parseEvents(extractJsonPayload(aiResult.content), aiResult.provider);
     cache = { ts: Date.now(), events: parsed };
     return NextResponse.json({ events: parsed, stale: false, lastUpdated: cache.ts }, { status: 200 });
-  } catch {
+  } catch (error) {
     if (cache) {
-      return NextResponse.json({ events: cache.events, stale: true, lastUpdated: cache.ts }, { status: 200 });
+      return NextResponse.json(
+        {
+          events: cache.events,
+          stale: true,
+          lastUpdated: cache.ts,
+          error: error instanceof Error ? error.message : "AI calendar failed",
+        },
+        { status: 200 }
+      );
     }
-    return NextResponse.json({ events: [], stale: true, lastUpdated: Date.now() }, { status: 200 });
+    return NextResponse.json(
+      {
+        events: [],
+        stale: true,
+        lastUpdated: Date.now(),
+        error: error instanceof Error ? error.message : "AI calendar failed",
+      },
+      { status: 200 }
+    );
   }
 }

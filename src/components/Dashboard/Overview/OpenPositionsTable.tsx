@@ -107,7 +107,7 @@ export const OpenPositionsTable = memo(({ positions, marketData = {} }: OpenPosi
                     </thead>
                     <tbody className="divide-y divide-white/5">
                         <AnimatePresence>
-                            {sortedPositions.map((pos) => {
+                            {sortedPositions.map((pos, idx) => {
                                 const pnl = pos.pnl || 0;
                                 const isProfit = pnl >= 0;
                                 const mark = pos.markPrice || pos.entryPrice;
@@ -124,7 +124,7 @@ export const OpenPositionsTable = memo(({ positions, marketData = {} }: OpenPosi
 
                                 return (
                                     <motion.tr
-                                        key={pos.symbol}
+                                        key={`${pos.connectionId || pos.exchange || 'na'}:${pos.symbol}:${pos.side}:${pos.entryPrice}:${idx}`}
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         exit={{ opacity: 0 }}

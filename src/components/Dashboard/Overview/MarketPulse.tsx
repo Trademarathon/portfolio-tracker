@@ -1,11 +1,41 @@
 "use client";
 
-import { useRealtimeMarket, TickerData } from "@/hooks/useRealtimeMarket";
+import { useScreenerData, type EnhancedTickerData } from "@/hooks/useScreenerData";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { Zap, Flame, Activity, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
+
+const PREFERRED_PULSE_SYMBOLS = [
+    "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LINK", "AVAX", "DOT", "MATIC",
+    "UNI", "ATOM", "LTC", "BCH", "NEAR", "FIL", "INJ", "TIA", "ARB", "OP",
+    "SUI", "SEI", "PEPE", "WIF", "APT", "STX", "JUP", "WLD", "STRK", "HYPE",
+];
+const PREFERRED_PULSE_SET = new Set(PREFERRED_PULSE_SYMBOLS);
+const PULSE_SYMBOL_PATTERN = /^[A-Z0-9]{2,14}$/;
+const MIN_LIQUIDITY_USD_24H = 5_000_000;
+const MIN_RELAXED_LIQUIDITY_USD_24H = 1_500_000;
+const MAX_MOVE_FOR_LIQUIDITY_FALLBACK = 40;
+const MAX_RELAXED_MOVE = 80;
+
+type PulseTicker = Pick<EnhancedTickerData, "symbol" | "price" | "change24h" | "volume24h" | "fundingRate" | "exchange">;
+
+function sanitizeTicker(item: EnhancedTickerData): PulseTicker | null {
+    const symbol = String(item?.symbol || "").toUpperCase().trim();
+    if (!symbol || !PULSE_SYMBOL_PATTERN.test(symbol)) return null;
+    if (!Number.isFinite(item.price) || item.price <= 0) return null;
+    if (!Number.isFinite(item.change24h)) return null;
+    if (!Number.isFinite(item.volume24h) || item.volume24h < 0) return null;
+    return {
+        symbol,
+        price: item.price,
+        change24h: item.change24h,
+        volume24h: item.volume24h || 0,
+        fundingRate: item.fundingRate || 0,
+        exchange: item.exchange,
+    };
+}
 
 const Item = memo(({
     item,
@@ -13,7 +43,7 @@ const Item = memo(({
     index,
     maxAbsMove
 }: {
-    item: TickerData;
+    item: PulseTicker;
     onOpenChart: (symbol: string, price?: number) => void;
     index: number;
     maxAbsMove: number;
@@ -88,16 +118,59 @@ const Item = memo(({
 Item.displayName = "MarketPulseItem";
 
 export const MarketPulse = memo(() => {
-    const { allStats } = useRealtimeMarket();
+    const { tickersList } = useScreenerData({ live: true, enableRestFallback: true, fetchMarkets: true });
     const { setSelectedChart } = usePortfolio();
 
     const movers = useMemo(() => {
-        const statsArray = allStats ? Object.values(allStats) : [];
-        if (statsArray.length === 0) return [];
-        return statsArray
+        const rows = (tickersList || []).filter((row) => !row.placeholder && (row.price || 0) > 0);
+        if (rows.length === 0) return [];
+
+        const uniqueBySymbol = new Map<string, PulseTicker>();
+        rows.forEach((raw) => {
+            const item = sanitizeTicker(raw);
+            if (!item) return;
+
+            const prev = uniqueBySymbol.get(item.symbol);
+            if (!prev || (item.volume24h > prev.volume24h) || (item.volume24h === prev.volume24h && Math.abs(item.change24h) > Math.abs(prev.change24h))) {
+                uniqueBySymbol.set(item.symbol, item);
+            }
+        });
+
+        const deduped = Array.from(uniqueBySymbol.values());
+        if (deduped.length === 0) return [];
+
+        const preferred = deduped.filter((item) => PREFERRED_PULSE_SET.has(item.symbol));
+        const liquidFallback = deduped.filter(
+            (item) =>
+                !PREFERRED_PULSE_SET.has(item.symbol) &&
+                (item.volume24h || 0) >= MIN_LIQUIDITY_USD_24H &&
+                Math.abs(item.change24h) <= MAX_MOVE_FOR_LIQUIDITY_FALLBACK
+        );
+
+        const primary = [...preferred, ...liquidFallback]
             .sort((a, b) => Math.abs(b.change24h) - Math.abs(a.change24h))
             .slice(0, 12);
-    }, [allStats]);
+
+        if (primary.length >= 8) return primary;
+
+        const relaxedFallback = deduped
+            .filter(
+                (item) =>
+                    (item.volume24h || 0) >= MIN_RELAXED_LIQUIDITY_USD_24H &&
+                    Math.abs(item.change24h) <= MAX_RELAXED_MOVE
+            )
+            .sort((a, b) => Math.abs(b.change24h) - Math.abs(a.change24h))
+            .slice(0, 12);
+
+        const merged = new Map<string, PulseTicker>();
+        [...primary, ...relaxedFallback].forEach((item) => {
+            if (!merged.has(item.symbol)) merged.set(item.symbol, item);
+        });
+
+        return Array.from(merged.values())
+            .sort((a, b) => Math.abs(b.change24h) - Math.abs(a.change24h))
+            .slice(0, 12);
+    }, [tickersList]);
 
     const marketMeta = useMemo(() => {
         if (movers.length === 0) return { up: 0, down: 0, avgAbs: 0, maxAbs: 0 };

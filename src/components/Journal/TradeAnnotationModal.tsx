@@ -7,7 +7,6 @@ import {
     StrategyTagId,
     ExecutionQuality,
     EXECUTION_QUALITY,
-    getExecutionQualityInfo,
     MarketProfileObservation
 } from "@/lib/api/journal-types";
 import { StrategyTagSelector } from "./StrategyTagSelector";

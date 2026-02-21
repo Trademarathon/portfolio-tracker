@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { EnhancedWebSocketManager } from '@/lib/api/websocket-enhanced';
 import { WebSocketMessage } from '@/lib/api/websocket-types';
 import { normalizeSymbol } from '@/lib/utils/normalization';
+import { getHyperliquidNotionalVolumeUsd } from '@/lib/api/hyperliquid';
 
 export interface TickerData {
     symbol: string;
@@ -15,9 +16,35 @@ export interface TickerData {
     openInterest: number; // USD
 }
 
+function resolveHyperliquidSpotSymbol(asset: any, spotMeta: any): string {
+    const rawName = String(asset?.name || '').trim();
+    const tokens = Array.isArray(spotMeta?.tokens) ? spotMeta.tokens : [];
+    const tokenByIndex = new Map<number, string>();
+    tokens.forEach((token: any) => {
+        const idx = Number(token?.index);
+        const name = String(token?.name || '').trim();
+        if (Number.isFinite(idx) && name) tokenByIndex.set(idx, name);
+    });
+
+    const tokenIds = Array.isArray(asset?.tokens) ? asset.tokens : [];
+    const baseTokenId = Number(tokenIds[0]);
+    if (Number.isFinite(baseTokenId)) {
+        const baseName = tokenByIndex.get(baseTokenId);
+        if (baseName) return normalizeSymbol(baseName);
+    }
+
+    if (/^@?\d+$/.test(rawName)) {
+        const idx = parseInt(rawName.replace('@', ''), 10);
+        const directName = tokenByIndex.get(idx);
+        if (directName) return normalizeSymbol(directName);
+    }
+
+    return normalizeSymbol(rawName);
+}
+
 // Singleton manager instance for universal data
 let universalManager: EnhancedWebSocketManager | null = null;
-const subscribers = new Set<(data: any) => void>();
+const subscribers = new Set<(msg: WebSocketMessage) => void>();
 
 // Initialize singleton if needed
 function initManager() {
@@ -38,6 +65,13 @@ function initManager() {
     }
 }
 
+function teardownManagerIfIdle() {
+    if (subscribers.size > 0) return;
+    if (!universalManager) return;
+    universalManager.disconnect();
+    universalManager = null;
+}
+
 export function getUniversalManager() {
     initManager();
     return universalManager;
@@ -46,7 +80,10 @@ export function getUniversalManager() {
 export function subscribeToUniversalMessages(cb: (msg: WebSocketMessage) => void) {
     initManager();
     subscribers.add(cb);
-    return () => subscribers.delete(cb);
+    return () => {
+        subscribers.delete(cb);
+        teardownManagerIfIdle();
+    };
 }
 
 export function useRealtimeMarket(symbols?: string[]) {
@@ -79,9 +116,7 @@ export function useRealtimeMarket(symbols?: string[]) {
                 // console.log(`[Realtime] keys: ${Object.keys(updates).length}`);
             }
             else if (msg.type === 'marketStats') {
-                // Process webData2
-                // Structure: [metadata, assetCtxs]
-                // We need to parse this efficiently
+                // Process Hyperliquid market stats snapshot emitted by websocket-enhanced.
                 const data = msg.data as any;
                 const { spotState: _spotState, perpState: _perpState, spotMeta, meta } = data;
                 const assetCtxs = data.assetCtxs;
@@ -95,11 +130,11 @@ export function useRealtimeMarket(symbols?: string[]) {
 
                         const name = asset.name;
                         const normalized = normalizeSymbol(name);
-                        const price = parseFloat(ctx.markPx);
-                        const dayNfv = parseFloat(ctx.dayNfv);
-                        const prevDayPx = parseFloat(ctx.prevDayPx);
-                        const openInterest = parseFloat(ctx.openInterest) * price;
-                        const funding = parseFloat(ctx.funding);
+                        const price = parseFloat(ctx.markPx || '0');
+                        const volume24h = getHyperliquidNotionalVolumeUsd(ctx);
+                        const prevDayPx = parseFloat(ctx.prevDayPx || '0');
+                        const openInterest = parseFloat(ctx.openInterest || '0') * price;
+                        const funding = parseFloat(ctx.funding || '0');
 
                         const change24h = prevDayPx > 0 ? ((price / prevDayPx) - 1) * 100 : 0;
 
@@ -108,7 +143,7 @@ export function useRealtimeMarket(symbols?: string[]) {
                             price,
                             change24h,
                             change1h: change24h * 0.1,
-                            volume24h: dayNfv,
+                            volume24h,
                             fundingRate: funding,
                             openInterest
                         };
@@ -132,7 +167,6 @@ export function useRealtimeMarket(symbols?: string[]) {
                 }
 
                 // 2. Process SPOT
-                // webData2 structure for spot: spotAssetCtxs matches spotMeta.universe
                 const spotCtxs = (msg.data as any).spotAssetCtxs;
                 const spotUniverse = spotMeta?.universe || [];
 
@@ -141,11 +175,12 @@ export function useRealtimeMarket(symbols?: string[]) {
                         const ctx = spotCtxs[index];
                         if (!ctx) return;
 
-                        const name = asset.name; // e.g. "PURR" or "HYPE"
+                        const rawName = String(asset?.name || '');
+                        const name = resolveHyperliquidSpotSymbol(asset, spotMeta) || rawName; // e.g. "PURR" or "HYPE"
                         const normalized = normalizeSymbol(name);
-                        const price = parseFloat(ctx.markPx);
-                        const dayNfv = parseFloat(ctx.dayNfv);
-                        const prevDayPx = parseFloat(ctx.prevDayPx);
+                        const price = parseFloat(ctx.markPx || '0');
+                        const volume24h = getHyperliquidNotionalVolumeUsd(ctx);
+                        const prevDayPx = parseFloat(ctx.prevDayPx || '0');
                         // Spot usually has no Open Interest or Funding, but check ctx
                         const openInterest = 0;
                         const funding = 0;
@@ -157,7 +192,7 @@ export function useRealtimeMarket(symbols?: string[]) {
                             price,
                             change24h,
                             change1h: change24h * 0.1,
-                            volume24h: dayNfv,
+                            volume24h,
                             fundingRate: funding,
                             openInterest
                         };
@@ -165,6 +200,16 @@ export function useRealtimeMarket(symbols?: string[]) {
                         // Store under original Hyperliquid name
                         statsRef.current[name] = ticker;
                         pricesRef.current[name] = price;
+
+                        // Keep a reverse key for index aliases (e.g. @234) to support lookups,
+                        // while still displaying human-readable names in UI.
+                        if (rawName && rawName !== name) {
+                            statsRef.current[rawName] = {
+                                ...ticker,
+                                symbol: name
+                            };
+                            pricesRef.current[rawName] = price;
+                        }
 
                         // Also store under a normalized key (e.g. strip quotes/suffixes)
                         if (normalized && normalized !== name) {
@@ -180,8 +225,7 @@ export function useRealtimeMarket(symbols?: string[]) {
             }
         };
 
-        // Subscribe
-        subscribers.add(handleMessage);
+        const unsubscribe = subscribeToUniversalMessages(handleMessage);
 
         // Stable UI flush loop. Avoid 60fps state churn that can crash desktop renderer.
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -193,6 +237,11 @@ export function useRealtimeMarket(symbols?: string[]) {
                     dirtyRef.current = false;
                     setPrices({ ...pricesRef.current });
                     setStats({ ...statsRef.current });
+                    if (typeof window !== "undefined") {
+                        window.dispatchEvent(
+                            new CustomEvent("market-prices-update", { detail: { ...pricesRef.current } })
+                        );
+                    }
                 }
                 scheduleFlush();
             }, flushMs);
@@ -200,7 +249,7 @@ export function useRealtimeMarket(symbols?: string[]) {
         scheduleFlush();
 
         return () => {
-            subscribers.delete(handleMessage);
+            unsubscribe();
             if (timer) clearTimeout(timer);
         };
     }, []);

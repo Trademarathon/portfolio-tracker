@@ -4,6 +4,35 @@ import { fetchBybitTradesWithFallback } from "../lib/bybit-trades";
 import { getExchangeInstance } from "../lib/exchange-manager";
 import { normalizeSymbol } from "../lib/normalization";
 
+const HYPERLIQUID_INFO_API = "https://api.hyperliquid.xyz/info";
+
+type SyncOptions = {
+  mode?: "realtime" | "manual";
+  bybitDaysBack?: number;
+  bybitSymbolsLimit?: number;
+  bybitPageLimitPerWindow?: number;
+};
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+async function hlInfo<T>(payload: Record<string, unknown>): Promise<T | null> {
+  try {
+    const response = await fetch(HYPERLIQUID_INFO_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 let hlAssetCache: Record<string, string> = {};
 let hlCacheTimestamp = 0;
 const HL_CACHE_TTL = 5 * 60 * 1000;
@@ -14,13 +43,8 @@ async function getHyperliquidAssetMap(): Promise<Record<string, string>> {
     return hlAssetCache;
   }
   try {
-    const response = await fetch("https://api.hyperliquid.xyz/info", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "meta" }),
-    });
-    if (!response.ok) return hlAssetCache;
-    const meta = await response.json();
+    const meta = await hlInfo<{ universe?: Array<{ name?: string }> }>({ type: "meta" });
+    if (!meta) return hlAssetCache;
     const assetMap: Record<string, string> = {};
     if (meta.universe) {
       meta.universe.forEach((asset: any, index: number) => {
@@ -29,25 +53,18 @@ async function getHyperliquidAssetMap(): Promise<Record<string, string>> {
       });
     }
     try {
-      const spotResponse = await fetch("https://api.hyperliquid.xyz/info", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "spotMeta" }),
-      });
-      if (spotResponse.ok) {
-        const spotMeta = await spotResponse.json();
-        if (spotMeta.tokens) {
-          spotMeta.tokens.forEach((token: any) => {
-            if (token.index !== undefined) {
-              // Keep universe mapping priority to avoid spot-index collisions
-              // that can mislabel perp fills (e.g. BTC becoming a random token name).
-              const indexKey = String(token.index);
-              const atKey = `@${token.index}`;
-              if (!assetMap[indexKey]) assetMap[indexKey] = token.name;
-              if (!assetMap[atKey]) assetMap[atKey] = token.name;
-            }
-          });
-        }
+      const spotMeta = await hlInfo<{ tokens?: Array<{ index?: number; name?: string }> }>({ type: "spotMeta" });
+      if (spotMeta?.tokens) {
+        spotMeta.tokens.forEach((token: any) => {
+          if (token.index !== undefined) {
+            // Keep universe mapping priority to avoid spot-index collisions
+            // that can mislabel perp fills (e.g. BTC becoming a random token name).
+            const indexKey = String(token.index);
+            const atKey = `@${token.index}`;
+            if (!assetMap[indexKey]) assetMap[indexKey] = token.name;
+            if (!assetMap[atKey]) assetMap[atKey] = token.name;
+          }
+        });
       }
     } catch { }
     hlAssetCache = assetMap;
@@ -62,13 +79,8 @@ async function getHyperliquidAssetMap(): Promise<Record<string, string>> {
 async function fetchHyperliquidHistory(user: string): Promise<Transaction[]> {
   try {
     const assetMap = await getHyperliquidAssetMap();
-    const response = await fetch("https://api.hyperliquid.xyz/info", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "userFills", user }),
-    });
-    if (!response.ok) return [];
-    const fills = await response.json();
+    const fills = await hlInfo<any[]>({ type: "userFills", user });
+    if (!Array.isArray(fills)) return [];
     return fills.map((f: any) => {
       let symbol = f.coin;
       if (symbol?.startsWith("@")) {
@@ -99,9 +111,16 @@ async function fetchHyperliquidHistory(user: string): Promise<Transaction[]> {
 export async function syncHandler(req: Request, res: Response) {
   try {
     let keys: any = {};
+    let options: SyncOptions = {};
     try {
       keys = req.body?.keys || {};
+      options = (req.body?.options && typeof req.body.options === "object" ? req.body.options : {}) as SyncOptions;
     } catch { }
+
+    const isRealtime = options.mode === "realtime";
+    const bybitDaysBack = clampInt(options.bybitDaysBack, 1, 60, isRealtime ? 7 : 30);
+    const bybitSymbolsLimit = clampInt(options.bybitSymbolsLimit, 5, 80, isRealtime ? 20 : 60);
+    const bybitPageLimitPerWindow = clampInt(options.bybitPageLimitPerWindow, 1, 10, isRealtime ? 3 : 10);
 
     const trades: Transaction[] = [];
     const connectedExchanges: string[] = [];
@@ -221,7 +240,9 @@ export async function syncHandler(req: Request, res: Response) {
         const bybitResult = await fetchBybitTradesWithFallback({
           apiKey: keys.bybitApiKey,
           secret: keys.bybitSecret,
-          symbols: Array.from(targetPairs).slice(0, 60),
+          symbols: Array.from(targetPairs).slice(0, bybitSymbolsLimit),
+          daysBack: bybitDaysBack,
+          pageLimitPerWindow: bybitPageLimitPerWindow,
         });
         trades.push(...(bybitResult.trades as Transaction[]));
         if (bybitResult.trades.length > 0) connectedExchanges.push("bybit");

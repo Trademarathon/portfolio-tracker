@@ -1,5 +1,6 @@
 
 import { getGroupedOrderbook, calculateOrderbookStepSizes } from '../src/lib/orderbook-grouping';
+import { getHyperliquidPerpsMeta, getHyperliquidL2Book } from '../src/lib/api/hyperliquid';
 
 
 async function main() {
@@ -12,12 +13,11 @@ async function main() {
     // 1. Get Asset Metadata
     console.log('Fetching metadata...');
 
-    const metaResponse = await fetch('https://api.hyperliquid.xyz/info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'meta' })
-    });
-    const meta = await metaResponse.json();
+    const meta = await getHyperliquidPerpsMeta();
+    if (!meta) {
+        console.error('Failed to fetch Hyperliquid perps meta');
+        return;
+    }
     const assetInfo = meta.universe.find((u: any) => u.name === symbol);
 
     if (!assetInfo) {
@@ -29,12 +29,7 @@ async function main() {
     console.log(`szDecimals: ${szDecimals}`);
 
     // 2. Get Reference Price
-    const initialBookRes = await fetch('https://api.hyperliquid.xyz/info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'l2Book', coin: symbol })
-    });
-    const initialBook = await initialBookRes.json();
+    const initialBook = await getHyperliquidL2Book(symbol);
 
     // Debug raw structure
     // console.log('Initial Book Response:', JSON.stringify(initialBook).substring(0, 200));

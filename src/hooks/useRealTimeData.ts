@@ -6,8 +6,14 @@ import { apiFetch } from '@/lib/api/client';
 import { getChainPortfolio } from '@/lib/api/wallet';
 import { getZerionFullPortfolio } from '@/lib/api/zerion';
 import { normalizeSymbol } from '@/lib/utils/normalization';
-import { normalizeHyperliquidOpenOrders } from '@/lib/api/hyperliquid';
-import { fetchBybitBalanceByType, fetchCexBalance, normalizeCexBalance } from '@/lib/api/cex';
+import {
+    getHyperliquidAccountState,
+    getHyperliquidOpenOrdersResult,
+    getHyperliquidSpotState,
+    getHyperliquidUserFills,
+    parseHyperliquidPositions,
+} from '@/lib/api/hyperliquid';
+import { fetchBybitBalanceByType, fetchCexBalance } from '@/lib/api/cex';
 
 // Rate limit tracking per exchange
 interface RateLimitState {
@@ -78,6 +84,8 @@ const INITIAL_RATE_LIMITS: RateLimits = {
     okx: { used: 0, max: 1200, resetAt: 0 },
 };
 
+const CEX_FAILURE_COOLDOWN_MS = 60000;
+
 interface UseRealTimeDataOptions {
     connections: PortfolioConnection[];
     onBalanceUpdate: (connectionId: string, balances: any[]) => void;
@@ -105,6 +113,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
     const rateLimitsRef = useRef<RateLimits>({ ...INITIAL_RATE_LIMITS });
     const intervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
     const triggerImmediateRef = useRef<(() => Promise<void>) | null>(null);
+    const cexCooldownUntilByConnectionRef = useRef<Record<string, number>>({});
 
     // USE REFS for callbacks to avoid dependency issues
     const onBalanceUpdateRef = useRef(onBalanceUpdate);
@@ -159,6 +168,23 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
         return false;
     };
 
+    const isRetryableCexStatus = (status: number): boolean =>
+        status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+    const isRetryableCexError = (error: unknown): boolean => {
+        const text = String((error as Error)?.message || error || '').toLowerCase();
+        return /timeout|timed out|unreachable|unavailable|fetch failed|econn|503|502|504|429|network/i.test(text);
+    };
+    const isCexWithApiKeys = (conn: PortfolioConnection): boolean =>
+        (conn.type === 'binance' || conn.type === 'bybit' || conn.type === 'okx') && !!conn.apiKey && !!conn.secret;
+    const isCexCoolingDown = (connId: string): boolean =>
+        Date.now() < (cexCooldownUntilByConnectionRef.current[connId] || 0);
+    const markCexCooldown = (connId: string) => {
+        cexCooldownUntilByConnectionRef.current[connId] = Date.now() + CEX_FAILURE_COOLDOWN_MS;
+    };
+    const clearCexCooldown = (connId: string) => {
+        cexCooldownUntilByConnectionRef.current[connId] = 0;
+    };
+
     // Start polling for all connections
     useEffect(() => {
         if (!enabled || connections.length === 0) {
@@ -171,14 +197,16 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
             console.log('[RealTime] Starting polling for', connections.length, 'connections');
         }
 
+        const intervalsMap = intervalsRef.current;
         // Clear existing intervals
-        intervalsRef.current.forEach((interval) => clearInterval(interval));
-        intervalsRef.current.clear();
+        intervalsMap.forEach((interval) => clearInterval(interval));
+        intervalsMap.clear();
 
         // Fetch functions (inline to avoid dependency issues)
         const fetchBalances = async (conn: PortfolioConnection) => {
             if (!conn.enabled) return;
             const timeoutMs = 8000;
+            if (isCexWithApiKeys(conn) && isCexCoolingDown(conn.id)) return;
 
             try {
                 let balances: any[] = [];
@@ -193,6 +221,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                     let typedAttempts = 0;
                     let typedFailures = 0;
                     let mergedFailed = false;
+                    let sawBybitSuccess = false;
                     const normalizeBybitRows = (rows: Array<{ symbol: string; balance: number }>, subType: 'Spot' | 'Perp') =>
                         rows
                             .map((row) => ({
@@ -204,7 +233,9 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                     const byTypeSafe = async (accountType: 'spot' | 'unified' | 'swap' | 'contract' | 'funding' | 'fund') => {
                         typedAttempts += 1;
                         try {
-                            return await fetchBybitBalanceByType(accountType, conn.apiKey!, conn.secret!);
+                            const rows = await fetchBybitBalanceByType(accountType, conn.apiKey!, conn.secret!);
+                            sawBybitSuccess = true;
+                            return rows;
                         } catch (e) {
                             typedFailures += 1;
                             const message = e instanceof Error ? e.message : String(e);
@@ -248,6 +279,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                             attemptErrors.push(`merged: ${message}`);
                             return [];
                         });
+                        if (!mergedFailed) sawBybitSuccess = true;
                         if (merged.length > 0) {
                             balances.push(...normalizeBybitRows(merged, 'Spot'));
                         }
@@ -257,38 +289,20 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                     if (balances.length === 0 && allTypedFailed && mergedFailed) {
                         throw new Error(`Bybit polling balance failed (${attemptErrors.join(' | ')})`);
                     }
+                    if (sawBybitSuccess) {
+                        clearCexCooldown(conn.id);
+                    }
                 } else if (conn.type === 'binance' && conn.apiKey && conn.secret) {
                     const exchange = conn.type as keyof RateLimits;
                     const weight = API_WEIGHTS[exchange]?.balance ?? 1;
                     if (!canMakeRequest(exchange, weight)) return;
-                    const ctrl = new AbortController();
-                    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-                    try {
-                        const res = await apiFetch('/api/cex/balance', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ exchangeId: conn.type, apiKey: conn.apiKey, secret: conn.secret }),
-                            signal: ctrl.signal,
-                        }, timeoutMs);
-                        clearTimeout(t);
-                        const raw = await res.json().catch(() => ({}));
-                        if (res.ok && raw && typeof raw === 'object') {
-                            const normalized = normalizeCexBalance(raw);
-                            balances = Array.isArray(normalized) ? normalized : [];
-                        }
-                    } catch (_) {
-                        clearTimeout(t);
-                    }
+                    balances = await fetchCexBalance('binance', conn.apiKey, conn.secret);
+                    clearCexCooldown(conn.id);
                 } else if (conn.type === 'hyperliquid' && conn.walletAddress) {
                     const exchange = conn.type as keyof RateLimits;
                     if (API_WEIGHTS[exchange] && !canMakeRequest(exchange, API_WEIGHTS[exchange].balance)) return;
-                    const res = await fetch('https://api.hyperliquid.xyz/info', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ type: 'spotClearinghouseState', user: conn.walletAddress }),
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
+                    const data = await getHyperliquidSpotState(conn.walletAddress);
+                    if (data && Array.isArray(data.balances)) {
                         balances = (data.balances || []).map((b: any) => ({
                             symbol: normalizeSymbol(b.coin),
                             balance: parseFloat(b.total),
@@ -327,6 +341,9 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                     onBalanceUpdateRef.current(conn.id, balances);
                 }
             } catch (e) {
+                if (isCexWithApiKeys(conn) && isRetryableCexError(e)) {
+                    markCexCooldown(conn.id);
+                }
                 if (isDev) console.warn(`[RealTime] Balance failed for ${conn.name}:`, e);
             }
         };
@@ -335,6 +352,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
             if (!conn.enabled) return;
             const exchange = conn.type as keyof RateLimits;
             if (!API_WEIGHTS[exchange]) return;
+            if (isCexWithApiKeys(conn) && isCexCoolingDown(conn.id)) return;
 
             const weight = API_WEIGHTS[exchange].positions;
             if (!canMakeRequest(exchange, weight)) return;
@@ -344,25 +362,9 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                 let didFetchPositions = false;
 
                 if (conn.type === 'hyperliquid' && conn.walletAddress) {
-                    const res = await fetch('https://api.hyperliquid.xyz/info', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ type: 'clearinghouseState', user: conn.walletAddress }),
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        positions = (data.assetPositions || [])
-                            .filter((ap: any) => parseFloat(ap.position?.szi || '0') !== 0)
-                            .map((ap: any) => ({
-                                symbol: normalizeSymbol(ap.position.coin),
-                                size: parseFloat(ap.position.szi),
-                                entryPrice: parseFloat(ap.position.entryPx),
-                                markPrice: parseFloat(ap.position.positionValue) / Math.abs(parseFloat(ap.position.szi)) || 0,
-                                pnl: parseFloat(ap.position.unrealizedPnl),
-                                side: parseFloat(ap.position.szi) > 0 ? 'long' : 'short',
-                                leverage: ap.position.leverage?.value || 1,
-                                liquidationPrice: parseFloat(ap.position.liquidationPx) || 0,
-                            }));
+                    const data = await getHyperliquidAccountState(conn.walletAddress);
+                    if (data) {
+                        positions = parseHyperliquidPositions(data);
                         didFetchPositions = true;
 
                         // Also update perp collateral (USDC) for Hyperliquid
@@ -406,9 +408,13 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                                 liquidationPrice: parseFloat(p.liquidationPrice || '0'),
                             }));
                             didFetchPositions = true;
+                            clearCexCooldown(conn.id);
+                        } else if (isRetryableCexStatus(res.status)) {
+                            markCexCooldown(conn.id);
                         }
                     } catch (_) {
                         clearTimeout(t);
+                        markCexCooldown(conn.id);
                     }
                 }
 
@@ -416,6 +422,9 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                     onPositionUpdateRef.current(conn.id, positions);
                 }
             } catch (e) {
+                if (isCexWithApiKeys(conn) && isRetryableCexError(e)) {
+                    markCexCooldown(conn.id);
+                }
                 if (isDev) console.warn(`[RealTime] Position failed for ${conn.name}:`, e);
             }
         };
@@ -424,6 +433,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
             if (!conn.enabled) return;
             const exchange = conn.type as keyof RateLimits;
             if (!API_WEIGHTS[exchange]) return;
+            if (isCexWithApiKeys(conn) && isCexCoolingDown(conn.id)) return;
 
             const weight = API_WEIGHTS[exchange].openOrders;
             if (!canMakeRequest(exchange, weight)) return;
@@ -448,21 +458,18 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                             const data = await res.json();
                             orders = data.orders || [];
                             didFetch = true;
+                            clearCexCooldown(conn.id);
+                        } else if (isRetryableCexStatus(res.status)) {
+                            markCexCooldown(conn.id);
                         }
                     } catch (_) {
                         clearTimeout(t);
+                        markCexCooldown(conn.id);
                     }
                 } else if (conn.type === 'hyperliquid' && conn.walletAddress) {
-                    const res = await fetch('https://api.hyperliquid.xyz/info', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ type: 'openOrders', user: conn.walletAddress }),
-                    });
-                    if (res.ok) {
-                        const raw = await res.json();
-                        orders = normalizeHyperliquidOpenOrders(raw, conn.name);
-                        didFetch = true;
-                    }
+                    const result = await getHyperliquidOpenOrdersResult(conn.walletAddress, conn.name);
+                    orders = result.orders;
+                    didFetch = result.ok;
                 }
 
                 // IMPORTANT: only push updates when we successfully fetched.
@@ -471,6 +478,9 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                     onOrderUpdateRef.current(conn.id, orders);
                 }
             } catch (e) {
+                if (isCexWithApiKeys(conn) && isRetryableCexError(e)) {
+                    markCexCooldown(conn.id);
+                }
                 if (isDev) console.warn(`[RealTime] Order failed for ${conn.name}:`, e);
             }
         };
@@ -479,6 +489,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
             if (!conn.enabled) return;
             const exchange = conn.type as keyof RateLimits;
             if (!API_WEIGHTS[exchange]) return;
+            if (isCexWithApiKeys(conn) && isCexCoolingDown(conn.id)) return;
 
             const weight = API_WEIGHTS[exchange].fills;
             if (!canMakeRequest(exchange, weight)) return;
@@ -501,39 +512,39 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                         if (res.ok) {
                             const data = await res.json();
                             trades = data.trades || [];
+                            clearCexCooldown(conn.id);
+                        } else if (isRetryableCexStatus(res.status)) {
+                            markCexCooldown(conn.id);
                         }
                     } catch (_) {
                         clearTimeout(t);
+                        markCexCooldown(conn.id);
                     }
                 } else if (conn.type === 'hyperliquid' && conn.walletAddress) {
-                    const res = await fetch('https://api.hyperliquid.xyz/info', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ type: 'userFills', user: conn.walletAddress }),
-                    });
-                    if (res.ok) {
-                        const fills = await res.json();
-                        // Normalize Hyperliquid fills to match other exchanges
-                        trades = fills.slice(0, 100).map((f: any) => ({
-                            id: f.hash || `${f.tid}`,
-                            timestamp: f.time,
-                            symbol: normalizeSymbol(f.coin),
-                            side: (f.side === 'B' || f.dir?.toLowerCase().includes('long')) ? 'buy' : 'sell',
-                            price: parseFloat(f.px),
-                            amount: parseFloat(f.sz),
-                            pnl: parseFloat(f.closedPnl || '0'),
-                            fee: parseFloat(f.fee || '0'),
-                            feeCurrency: f.feeToken || 'USDC',
-                            exchange: 'Hyperliquid',
-                            takerOrMaker: f.crossed ? 'taker' : 'maker',
-                        }));
-                    }
+                    const fills = await getHyperliquidUserFills(conn.walletAddress);
+                    // Normalize Hyperliquid fills to match other exchanges
+                    trades = fills.slice(0, 100).map((f: any) => ({
+                        id: f.hash || `${f.tid}`,
+                        timestamp: f.time,
+                        symbol: normalizeSymbol(f.coin),
+                        side: (f.side === 'B' || f.dir?.toLowerCase().includes('long')) ? 'buy' : 'sell',
+                        price: parseFloat(f.px),
+                        amount: parseFloat(f.sz),
+                        pnl: parseFloat(f.closedPnl || '0'),
+                        fee: parseFloat(f.fee || '0'),
+                        feeCurrency: f.feeToken || 'USDC',
+                        exchange: 'Hyperliquid',
+                        takerOrMaker: f.crossed ? 'taker' : 'maker',
+                    }));
                 }
 
                 if (trades.length > 0) {
                     onTradeUpdateRef.current(conn.id, trades);
                 }
             } catch (e) {
+                if (isCexWithApiKeys(conn) && isRetryableCexError(e)) {
+                    markCexCooldown(conn.id);
+                }
                 if (isDev) console.warn(`[RealTime] Trades failed for ${conn.name}:`, e);
             }
         };
@@ -562,7 +573,7 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                 }
                 const nextMs = getEffectiveInterval(baseMs);
                 const t = setTimeout(() => run(), nextMs);
-                intervalsRef.current.set(key, t);
+                intervalsMap.set(key, t);
             };
             run();
         };
@@ -582,19 +593,12 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
                 if (pollTrades) {
                     schedulePoll(`${conn.id}-trades`, () => fetchTrades(conn), POLL_INTERVALS.TRADES);
                 }
-                setTimeout(() => fetchPositions(conn), 100);
-                setTimeout(() => fetchBalances(conn), 500);
-                setTimeout(() => fetchOrders(conn), 1200);
-                if (pollTrades) {
-                    setTimeout(() => fetchTrades(conn), 2000);
-                }
                 return;
             }
 
             if (pollWallets && isWalletLikeConnection(conn)) {
                 if (isDev) console.log(`[RealTime] Setting up wallet polling for ${conn.name} (${conn.chain || conn.type})`);
                 schedulePoll(`${conn.id}-wallet-balances`, () => fetchBalances(conn), WALLET_POLL_MS);
-                setTimeout(() => fetchBalances(conn), 800);
             }
         });
 
@@ -610,8 +614,8 @@ export function useRealTimeData(options: UseRealTimeDataOptions) {
             document.removeEventListener('visibilitychange', onVisibilityChange);
             triggerImmediateRef.current = null;
             if (isDev) console.log('[RealTime] Stopping polling');
-            intervalsRef.current.forEach((t) => clearTimeout(t));
-            intervalsRef.current.clear();
+            intervalsMap.forEach((t) => clearTimeout(t));
+            intervalsMap.clear();
         };
     }, [enabled, connections, pollTrades, pollWallets, isWalletLikeConnection]); // Removed callback dependencies - using refs instead
 

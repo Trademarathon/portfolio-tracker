@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { useJournal } from "@/contexts/JournalContext";
 import { TradeTable } from "@/components/Journal/TradeTable/TradeTable";
@@ -23,28 +24,22 @@ export default function TradesPage() {
         <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="space-y-6"
+            className="space-y-4"
         >
-            {/* Open Positions Alert */}
             {openCount > 0 && (
-                <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between"
-                >
-                    <span className="text-sm text-amber-400">
-                        {openCount} open position{openCount > 1 ? 's' : ''} was detected
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-900/70 px-3 py-1.5 text-xs text-zinc-300">
+                        {openCount} open position{openCount > 1 ? "s" : ""} was detected
                     </span>
-                    <a
+                    <Link
                         href="/journal/trades/open"
-                        className="text-sm text-amber-400 hover:underline"
+                        className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-900/70 px-3 py-1.5 text-xs text-zinc-300 hover:text-white"
                     >
-                        Go to the Open positions page →
-                    </a>
-                </motion.div>
+                        Go to the Open positions page
+                    </Link>
+                </div>
             )}
 
-            {/* Trade Table */}
             <TradeTable trades={safeTrades} preferences={preferences} showOpenOnly={false} />
         </motion.div>
     );

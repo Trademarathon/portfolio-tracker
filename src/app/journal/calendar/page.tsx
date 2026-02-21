@@ -15,10 +15,9 @@ import {
     addMonths,
     subMonths,
     isSameMonth,
-    isSameDay,
     isToday,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function CalendarPage() {
     const { filteredTrades, annotations, preferences, isLoading } = useJournal();
@@ -96,13 +95,14 @@ export default function CalendarPage() {
         const wins = monthTrades.filter(t => (t.realizedPnl || 0) > 0).length;
         const losses = monthTrades.filter(t => (t.realizedPnl || 0) < 0).length;
         const tradingDays = new Set(monthTrades.map(t => format(t.timestamp, 'yyyy-MM-dd'))).size;
+        const decisiveTrades = wins + losses;
 
         return {
             totalTrades: monthTrades.length,
             totalPnl,
             wins,
             losses,
-            winRate: monthTrades.length > 0 ? (wins / monthTrades.length) * 100 : 0,
+            winRate: decisiveTrades > 0 ? (wins / decisiveTrades) * 100 : 0,
             tradingDays,
         };
     }, [filteredTrades, currentDate]);

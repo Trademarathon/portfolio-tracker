@@ -63,6 +63,11 @@ NEXT_PUBLIC_HYPERLIQUID_API_URL=https://api.hyperliquid.xyz
 npm run dev
 ```
 
+### 4.1 AI provider status check
+```bash
+npm run ai:status
+```
+
 ### 5. Running with the API server (browser / CEX / Journal)
 The app uses a static export. For CEX connections, journal sync, wallet API, and other server-side features you need the standalone API server:
 
@@ -71,6 +76,28 @@ The app uses a static export. For CEX connections, journal sync, wallet API, and
 3. For journal (Prisma): set `DATABASE_URL="file:./dev.db"` (or your SQLite path) and run `npx prisma generate` (and migrations if needed).
 
 Then run `npm run dev` and open the app in the browser.
+
+### 6. Always-on background mode (stable)
+Run the app and API as auto-restarting background services:
+
+```bash
+npm run service:start
+npm run service:status
+```
+
+Useful commands:
+
+```bash
+npm run service:logs
+npm run service:restart
+npm run service:stop
+```
+
+Notes:
+- Runner prefers production (`next start`) and auto-builds if needed.
+- If production build fails, it auto-falls back to `dev:next`.
+- You can force dev mode: `SERVICE_WEB_MODE=dev npm run service:start`
+- This setup is project-only (no system service install).
 
 ---
 

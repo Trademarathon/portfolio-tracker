@@ -313,11 +313,13 @@ interface TickerUpdateData {
 export interface UseScreenerDataOptions {
     live?: boolean;
     enableRestFallback?: boolean;
+    fetchMarkets?: boolean;
 }
 
 export function useScreenerData(options: UseScreenerDataOptions = {}) {
     const live = options.live ?? true;
     const enableRestFallback = options.enableRestFallback ?? live;
+    const fetchMarkets = options.fetchMarkets ?? true;
     const [markets, setMarkets] = useState<Market[]>([]);
     const [tickers, setTickers] = useState<Map<string, EnhancedTickerData>>(new Map());
     const [loading, setLoading] = useState(true);
@@ -375,7 +377,13 @@ export function useScreenerData(options: UseScreenerDataOptions = {}) {
 
     // Fetch markets list (with fallback - WebSocket provides live data even if API fails)
     useEffect(() => {
-        const fetchMarkets = async () => {
+        if (!fetchMarkets) {
+            setMarkets(DEFAULT_MARKETS);
+            setLoading(false);
+            return;
+        }
+
+        const loadMarkets = async () => {
             try {
                 const ctrl = new AbortController();
                 const t = setTimeout(() => ctrl.abort(), 5000);
@@ -395,8 +403,8 @@ export function useScreenerData(options: UseScreenerDataOptions = {}) {
             }
         };
 
-        fetchMarkets();
-    }, []);
+        loadMarkets();
+    }, [fetchMarkets]);
 
     // Initialize data watching
     useEffect(() => {

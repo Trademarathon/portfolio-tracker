@@ -31,6 +31,12 @@ const pageTitles: Record<string, string> = {
     "/journal/reports/tags": "Tags Report",
     "/journal/reports/symbols": "Symbols Report",
     "/journal/reports/pnl-curve": "PnL Curve Report",
+    "/journal/reports/risk": "Risk Report",
+    "/journal/reports/day-time": "Day & Time Report",
+    "/journal/reports/playbook": "Playbook Report",
+    "/journal/reports/win-loss": "Win vs Loss Report",
+    "/journal/reports/compare": "Compare Report",
+    "/journal/reports/options": "Options Report",
     "/journal/preferences": "Preferences",
 };
 

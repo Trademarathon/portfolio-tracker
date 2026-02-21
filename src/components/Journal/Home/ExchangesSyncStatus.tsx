@@ -25,7 +25,21 @@ interface ExchangeCardProps {
     };
 }
 
+function formatExchangeDiagnosticMessage(message?: string): string {
+    const text = String(message || '').replace(/\s+/g, ' ').trim();
+    if (!text) return 'Sync/auth error';
+    if (/<!doctype html|<html|<head|<body|<script/i.test(text)) {
+        return 'Service unavailable (invalid response).';
+    }
+    if (text.length > 140) return `${text.slice(0, 137)}...`;
+    return text;
+}
+
 function ExchangeCard({ name, isConnected, lastSyncTime, tradesCount, diagnostic }: ExchangeCardProps) {
+    const diagnosticMessage = diagnostic?.status === 'error'
+        ? formatExchangeDiagnosticMessage(diagnostic.message)
+        : '';
+
     return (
         <div className={cn(
             "flex items-center gap-3 p-3 rounded-xl transition-all",
@@ -45,10 +59,10 @@ function ExchangeCard({ name, isConnected, lastSyncTime, tradesCount, diagnostic
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     )}
                 </div>
-                <span className="text-[10px] text-zinc-500">
+                <span className="block max-w-[240px] text-[10px] text-zinc-500 truncate" title={diagnosticMessage || undefined}>
                     {isConnected
                         ? diagnostic?.status === 'error'
-                            ? (diagnostic.message || 'Sync/auth error')
+                            ? diagnosticMessage
                             : `${tradesCount || 0} trades synced`
                         : "Not connected"}
                 </span>

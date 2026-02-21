@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useJournal } from "@/contexts/JournalContext";
 import { usePlaybookAlerts } from "@/hooks/usePlaybookAlerts";
 import { PlaybookLevelAlert } from "@/lib/api/alerts";
 import { formatDistanceToNow } from "date-fns";
-import { Bell, BellRing, Zap, Target, Shield, TrendingUp, TrendingDown, X, Settings } from "lucide-react";
+import { Bell, BellRing, Zap, Target, Shield, TrendingUp, TrendingDown, Settings } from "lucide-react";
 
 interface AlertItemProps {
     alert: PlaybookLevelAlert;
@@ -132,7 +132,7 @@ function TriggeredAlert({ alert }: TriggeredAlertProps) {
 }
 
 export function RealTimeAlertsPanel() {
-    const { playbookAlerts, triggeredAlerts, realtimeEnabled } = useJournal();
+    const { playbookAlerts, triggeredAlerts } = useJournal();
     const { isMonitoring, setIsMonitoring, currentPrices, activeSymbols } = usePlaybookAlerts();
     const [showAll, setShowAll] = useState(false);
     

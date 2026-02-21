@@ -18,6 +18,8 @@ import multer from "multer";
 
 const app = express();
 const PORT = process.env.API_PORT ? parseInt(process.env.API_PORT, 10) : 35821;
+const HOST = "127.0.0.1";
+const API_BASE_URL = `http://${HOST}:${PORT}`;
 const upload = multer({ storage: multer.memoryStorage() });
 
 /** Wrap async route handlers so rejections are caught and we never send 500. */
@@ -131,28 +133,6 @@ app.get("/api/screener/markets", async (_req, res) => {
 app.get("/api/screener/ccxt-data", async (_req, res) => {
   const { ccxtDataHandler } = await import("./routes/screener-ccxt-data");
   ccxtDataHandler(_req, res);
-});
-
-// Social (X)
-app.get("/api/social/x/auth", async (req, res) => {
-  const { xAuthHandler } = await import("./routes/social-x");
-  xAuthHandler(req, res);
-});
-app.get("/api/social/x/callback", async (req, res) => {
-  const { xCallbackHandler } = await import("./routes/social-x");
-  xCallbackHandler(req, res);
-});
-app.get("/api/social/x/status", async (req, res) => {
-  const { xStatusHandler } = await import("./routes/social-x");
-  xStatusHandler(req, res);
-});
-app.post("/api/social/x/disconnect", async (req, res) => {
-  const { xDisconnectHandler } = await import("./routes/social-x");
-  xDisconnectHandler(req, res);
-});
-app.get("/api/social/x/search", async (req, res) => {
-  const { xSearchHandler } = await import("./routes/social-x");
-  xSearchHandler(req, res);
 });
 
 // Alerts
@@ -300,18 +280,66 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`[API Server] Listening on http://127.0.0.1:${PORT}`);
+async function handlePortInUse() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (response.ok) {
+      const body = await response.json().catch(() => null);
+      if (
+        body &&
+        typeof body === "object" &&
+        "ok" in body &&
+        (body as { ok?: unknown }).ok === true
+      ) {
+        console.log(
+          `[API Server] Port ${PORT} is already served by this API. Reusing existing instance.`
+        );
+        process.exit(0);
+      }
+    }
+  } catch {
+    // If health probe fails, we treat this as a conflicting non-API process.
+  }
+
+  console.error(`[API Server] Failed to bind ${API_BASE_URL}: port already in use.`);
+  console.error(
+    `[API Server] Stop the process on port ${PORT} or set API_PORT in .env to another port.`
+  );
+  process.exit(1);
+}
+
+function startBackgroundAlertChecker() {
   const hasSupabase =
     !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
   console.log(
     `[API Server] Supabase env: ${hasSupabase ? "OK" : "MISSING (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env)"}`
   );
+  if (!hasSupabase) return;
+
   // Server-side screener alert checker (alerts when app is closed)
-  if (hasSupabase) {
-    import("./routes/alert-checker").then((m) => {
+  import("./routes/alert-checker")
+    .then((m) => {
       m.runServerSideAlertCheck().catch(() => {});
       setInterval(() => m.runServerSideAlertCheck().catch(() => {}), 60 * 1000);
-    }).catch(() => {});
+    })
+    .catch(() => {});
+}
+
+const server = app.listen(PORT, HOST);
+
+server.on("listening", () => {
+  console.log(`[API Server] Listening on ${API_BASE_URL}`);
+  startBackgroundAlertChecker();
+});
+
+server.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EADDRINUSE") {
+    void handlePortInUse();
+    return;
   }
+
+  console.error("[API Server] Failed to start server:", error);
+  process.exit(1);
 });

@@ -3,7 +3,7 @@
 import { MarketTable } from "@/components/Screener/MarketTable";
 import { TradingViewChart } from "@/components/Screener/TradingViewChart";
 import { useMarketsData } from "@/hooks/useMarketsData";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
     Globe,
@@ -14,10 +14,43 @@ import {
 } from "lucide-react";
 import { PageWrapper } from "@/components/Layout/PageWrapper";
 import { ComponentSettingsLink } from "@/components/ui/ComponentSettingsLink";
+import { useScreenerData } from "@/hooks/useScreenerData";
+import { buildScreenerReliability } from "@/hooks/useConnectorReliability";
+import { DataReliabilityBar } from "@/components/ui/DataReliabilityBar";
 
 export default function MarketsPage() {
     const { data: marketItems } = useMarketsData();
+    const screenerData = useScreenerData({ live: true, enableRestFallback: true, fetchMarkets: true });
     const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+    const [snapshotTickers, setSnapshotTickers] = useState<typeof screenerData.tickersList>([]);
+    const [snapshotUpdatedAt, setSnapshotUpdatedAt] = useState<number | undefined>(undefined);
+
+    const liveRowsCount = useMemo(
+        () => (screenerData.tickersList || []).filter((row) => !row.placeholder && (row.price || 0) > 0).length,
+        [screenerData.tickersList]
+    );
+
+    useEffect(() => {
+        if (liveRowsCount > 0) {
+            setSnapshotTickers(screenerData.tickersList);
+            setSnapshotUpdatedAt(Date.now());
+        }
+    }, [liveRowsCount, screenerData.tickersList]);
+
+    const usingSnapshot = liveRowsCount === 0 && snapshotTickers.length > 0;
+    const effectiveTickers = usingSnapshot ? snapshotTickers : screenerData.tickersList;
+    const reliability = useMemo(
+        () =>
+            buildScreenerReliability({
+                connectionStatus: screenerData.connectionStatus,
+                totalRows: effectiveTickers.length,
+                liveRows: liveRowsCount,
+                loading: screenerData.loading,
+                usingSnapshot,
+                lastUpdateMs: snapshotUpdatedAt,
+            }),
+        [screenerData.connectionStatus, effectiveTickers.length, liveRowsCount, screenerData.loading, usingSnapshot, snapshotUpdatedAt]
+    );
 
     // Calculate counts
     const allSymbolsCount = marketItems?.length || 0;
@@ -66,6 +99,11 @@ export default function MarketsPage() {
                 </div>
             </div>
 
+            <DataReliabilityBar
+                title="Markets Feed"
+                summary={reliability}
+            />
+
             {/* Split View: Chart + Table */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Table Area */}
@@ -74,6 +112,7 @@ export default function MarketsPage() {
                         <MarketTable
                             selectedSymbol={selectedSymbol || ""}
                             onSelect={setSelectedSymbol}
+                            tickersOverride={effectiveTickers}
                         />
                     </div>
                 </div>

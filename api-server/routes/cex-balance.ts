@@ -27,6 +27,8 @@ const BYBIT_RECV_WINDOW = String(process.env.BYBIT_RECV_WINDOW || "20000");
 const BYBIT_TIME_SYNC_TTL_MS = 5 * 60 * 1000;
 const bybitTimeOffsetByBase = new Map<string, number>();
 const bybitTimeOffsetUpdatedAt = new Map<string, number>();
+const BYBIT_WALLET_TYPES_TTL_MS = 5 * 60 * 1000;
+const bybitWalletTypesCache = new Map<string, { types: string[]; at: number }>();
 
 const BYBIT_UNIFIED_COIN_BATCHES = [
   ["USDT", "USDC", "BTC", "ETH", "SOL", "XRP", "DOGE", "BNB", "TRX", "ADA"],
@@ -45,6 +47,10 @@ function getBybitBaseUrls(): string[] {
     "https://api-testnet.bybit.com",
   ];
   return [...new Set([...fromEnv, ...defaults])];
+}
+
+function makeBybitCacheKey(apiKey: string, secret: string): string {
+  return crypto.createHash("sha256").update(`${apiKey}:${secret}`).digest("hex");
 }
 
 function parseRetCode(value: unknown): number {
@@ -205,6 +211,57 @@ async function bybitSignedGet(
   throw lastError || new BybitRequestError("Bybit request failed");
 }
 
+async function getBybitWalletTypes(apiKey: string, secret: string): Promise<Set<string> | null> {
+  const cacheKey = makeBybitCacheKey(apiKey, secret);
+  const cached = bybitWalletTypesCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < BYBIT_WALLET_TYPES_TTL_MS) {
+    return new Set(cached.types);
+  }
+
+  try {
+    const payload = await bybitSignedGet("/v5/user/get-member-type", {}, apiKey, secret);
+    const accountEntries = Array.isArray(payload?.result?.accounts) ? payload.result.accounts : [];
+    const types: string[] = accountEntries
+      .flatMap((entry: any) => {
+        const raw = entry?.accountType;
+        if (Array.isArray(raw)) return raw;
+        if (typeof raw === "string") return raw.split(",").map((s) => s.trim());
+        return [];
+      })
+      .map((s: any) => String(s || "").toUpperCase())
+      .filter((s: string) => s.length > 0);
+
+    if (types.length === 0) return null;
+    const unique = Array.from(new Set<string>(types));
+    bybitWalletTypesCache.set(cacheKey, { types: unique, at: Date.now() });
+    return new Set(unique);
+  } catch {
+    return null;
+  }
+}
+
+async function bybitGetWalletBalance(
+  accountType: "UNIFIED",
+  apiKey: string,
+  secret: string
+): Promise<BybitJson> {
+  return bybitSignedGet("/v5/account/wallet-balance", { accountType }, apiKey, secret);
+}
+
+async function bybitGetAccountCoinsBalance(
+  accountType: "SPOT" | "CONTRACT" | "FUND" | "UNIFIED",
+  apiKey: string,
+  secret: string,
+  coin?: string
+): Promise<BybitJson> {
+  return bybitSignedGet(
+    "/v5/asset/transfer/query-account-coins-balance",
+    { accountType, coin },
+    apiKey,
+    secret
+  );
+}
+
 function hasAnyBalance(bal: any): boolean {
   if (!bal || typeof bal !== "object") return false;
   const total = bal.total || {};
@@ -230,11 +287,15 @@ function pickBybitError(errors: string[]): string | null {
   return auth || errors[0];
 }
 
-function mapBybitAccountType(accountType: string | undefined): "spot" | "swap" | "fund" | null {
+function mapBybitAccountType(
+  accountType: string | undefined
+): "spot" | "unified" | "swap" | "contract" | "fund" | null {
   const raw = String(accountType || "").trim().toLowerCase();
   if (!raw) return null;
   if (raw === "spot") return "spot";
-  if (raw === "swap" || raw === "contract" || raw === "unified") return "swap";
+  if (raw === "swap") return "swap";
+  if (raw === "contract") return "contract";
+  if (raw === "unified") return "unified";
   if (raw === "fund" || raw === "funding") return "fund";
   return null;
 }
@@ -251,6 +312,7 @@ export async function balanceHandler(req: Request, res: Response) {
 
     if (exchangeId === "bybit") {
       const requestedType = mapBybitAccountType(accountType);
+      const walletTypes = await getBybitWalletTypes(apiKey, secret);
 
       const mergedBalance: any = { total: {}, free: {}, used: {}, info: {} };
       const errors: string[] = [];
@@ -263,87 +325,152 @@ export async function balanceHandler(req: Request, res: Response) {
           for (const c of coins) {
             const sym = c.coin;
             if (!sym) continue;
-            // Handle various shapes of balances across Spot/Unified/Fund
-            const wallet = parseFloat(c.walletBalance || c.equity || c.free || c.availableToWithdraw || '0');
-            const locked = parseFloat(c.locked || c.frozenBalance || '0');
+            const totalRaw = parseFloat(c.walletBalance || c.equity || c.balance || "0");
+            const freeRaw = parseFloat(c.free || c.availableToWithdraw || c.availableBalance || c.transferBalance || "0");
+            const lockedRaw = parseFloat(c.locked || c.frozenBalance || "0");
+            const totalCoin = totalRaw > 0 ? totalRaw : (freeRaw + lockedRaw);
+            const freeCoin = totalCoin > 0 ? (freeRaw > 0 ? Math.min(freeRaw, totalCoin) : totalCoin) : 0;
+            const usedCoin = Math.max(0, totalCoin - freeCoin);
 
-            const totalCoin = wallet + locked;
             if (totalCoin > 0) {
               mergedBalance.total[sym] = (mergedBalance.total[sym] || 0) + totalCoin;
-              mergedBalance.free[sym] = (mergedBalance.free[sym] || 0) + wallet;
-              mergedBalance.used[sym] = (mergedBalance.used[sym] || 0) + locked;
+              mergedBalance.free[sym] = (mergedBalance.free[sym] || 0) + freeCoin;
+              mergedBalance.used[sym] = (mergedBalance.used[sym] || 0) + usedCoin;
             }
           }
           // Some accounts just return total wallet balance equity without coin splits.
-          const accountTotal = parseFloat(acc?.totalEquity || acc?.totalWalletBalance || '0');
+          const accountTotal = parseFloat(acc?.totalEquity || acc?.totalWalletBalance || "0");
           if (accountTotal > 0 && coins.length === 0) {
-            const sym = String(type).toLowerCase() === 'unified' ? 'USDT' : 'USDC';
+            const sym = String(type).toLowerCase() === "unified" ? "USDT" : "USDC";
             mergedBalance.total[sym] = (mergedBalance.total[sym] || 0) + accountTotal;
             mergedBalance.free[sym] = (mergedBalance.free[sym] || 0) + accountTotal;
           }
         }
+
+        const balanceRows = payload?.result?.balance || [];
+        if (Array.isArray(balanceRows)) {
+          for (const c of balanceRows) {
+            const sym = c?.coin;
+            if (!sym) continue;
+            const totalRaw = parseFloat(c.walletBalance || c.transferBalance || c.balance || c.equity || "0");
+            const freeRaw = parseFloat(c.transferBalance || c.availableToWithdraw || c.availableBalance || c.free || "0");
+            const lockedRaw = parseFloat(c.locked || c.frozenBalance || "0");
+            const totalCoin = totalRaw > 0 ? totalRaw : (freeRaw + lockedRaw);
+            const freeCoin = totalCoin > 0 ? (freeRaw > 0 ? Math.min(freeRaw, totalCoin) : totalCoin) : 0;
+            const usedCoin = Math.max(0, totalCoin - freeCoin);
+            if (totalCoin > 0) {
+              mergedBalance.total[sym] = (mergedBalance.total[sym] || 0) + totalCoin;
+              mergedBalance.free[sym] = (mergedBalance.free[sym] || 0) + freeCoin;
+              mergedBalance.used[sym] = (mergedBalance.used[sym] || 0) + usedCoin;
+            }
+          }
+        }
+
         mergedBalance.info[type] = payload;
+      };
+
+      const attempt = async (label: string, fn: () => Promise<BybitJson>): Promise<boolean> => {
+        attemptedAccountTypes.push(label);
+        try {
+          const payload = await fn();
+          mergeBybitRaw(payload, label.toLowerCase());
+          return true;
+        } catch (e: any) {
+          errors.push(`${label}: ${e?.message || e}`);
+          return false;
+        }
       };
 
       // Handle specific account type if requested (e.g. from fetchBybitBalanceByType)
       if (requestedType) {
-        try {
-          const bybitQueryType = requestedType === 'swap' ? 'UNIFIED' : requestedType.toUpperCase();
-          attemptedAccountTypes.push(requestedType);
-          const res = await bybitSignedGet('/v5/account/wallet-balance', { accountType: bybitQueryType }, apiKey, secret);
-          mergeBybitRaw(res, requestedType);
+        const hasUnified = walletTypes?.has("UNIFIED") ?? false;
+        const hasSpot = walletTypes?.has("SPOT") ?? false;
+        const hasContract = walletTypes?.has("CONTRACT") ?? false;
+        const hasFund = walletTypes?.has("FUND") ?? false;
+        let resolvedType = requestedType;
+        let ok = false;
 
-          return res.json({
-            ...mergedBalance,
-            diagnostics: {
-              exchange: "bybit",
-              accountTypeRequested: String(accountType),
-              accountTypeResolved: requestedType,
-              attemptedAccountTypes: [requestedType],
-              errors: [],
-            },
-          });
-        } catch (e: any) {
-          const message = e?.message || String(e);
+        if (requestedType === "unified") {
+          ok = await attempt("UNIFIED", () => bybitGetWalletBalance("UNIFIED", apiKey, secret));
+        } else if (requestedType === "spot") {
+          // UTA accounts should be read from UNIFIED to avoid duplicate SPOT mirroring.
+          if (hasUnified || walletTypes == null) {
+            resolvedType = "unified";
+            ok = await attempt("UNIFIED", () => bybitGetWalletBalance("UNIFIED", apiKey, secret));
+          }
+          if (!ok && (hasSpot || walletTypes == null)) {
+            resolvedType = "spot";
+            ok = await attempt("SPOT", () => bybitGetAccountCoinsBalance("SPOT", apiKey, secret));
+          }
+        } else if (requestedType === "fund") {
+          if (hasFund || walletTypes == null) {
+            ok = await attempt("FUND", () => bybitGetAccountCoinsBalance("FUND", apiKey, secret));
+          }
+        } else if (requestedType === "swap" || requestedType === "contract") {
+          if (hasContract || walletTypes == null) {
+            resolvedType = "contract";
+            ok = await attempt("CONTRACT", () => bybitGetAccountCoinsBalance("CONTRACT", apiKey, secret));
+          } else if (hasUnified) {
+            // No separate contract wallet under UTA; return empty instead of mirroring unified balances.
+            return res.json({
+              ...mergedBalance,
+              diagnostics: {
+                exchange: "bybit",
+                accountTypeRequested: String(accountType),
+                accountTypeResolved: "unified",
+                attemptedAccountTypes: [],
+                errors: [],
+                note: "No separate CONTRACT wallet under UNIFIED account",
+              },
+            });
+          }
+        }
+
+        if (!ok) {
+          const message = pickBybitError(errors) || "Bybit account type fetch failed";
           return res.status(502).json({
             error: message,
             diagnostics: {
               exchange: "bybit",
               accountTypeRequested: String(accountType),
-              accountTypeResolved: requestedType,
-              attemptedAccountTypes: [requestedType],
-              errors: [message],
+              accountTypeResolved: resolvedType,
+              attemptedAccountTypes,
+              errors,
+              walletTypes: walletTypes ? Array.from(walletTypes) : null,
             },
           });
         }
+
+        return res.json({
+          ...mergedBalance,
+          diagnostics: {
+            exchange: "bybit",
+            accountTypeRequested: String(accountType),
+            accountTypeResolved: resolvedType,
+            attemptedAccountTypes,
+            errors,
+            walletTypes: walletTypes ? Array.from(walletTypes) : null,
+          },
+        });
       }
 
-      // 1. Primary Attempt: UNIFIED Trading Account
-      try {
-        attemptedAccountTypes.push("UNIFIED");
-        // Custom implementation `bybitSignedGet` has IP fallback logic & time sync integrated
-        const res = await bybitSignedGet('/v5/account/wallet-balance', { accountType: 'UNIFIED' }, apiKey, secret);
-        mergeBybitRaw(res, "unified");
-      } catch (e: any) {
-        errors.push(`UNIFIED: ${e?.message || e}`);
-      }
+      const hasUnified = walletTypes?.has("UNIFIED") ?? false;
+      const hasSpot = walletTypes?.has("SPOT") ?? false;
+      const hasContract = walletTypes?.has("CONTRACT") ?? false;
+      const hasFund = walletTypes?.has("FUND") ?? false;
 
-      // 2. Fallback: SPOT (if user hasn't upgraded to Unified Trading Account, this works)
-      try {
-        attemptedAccountTypes.push("SPOT");
-        const res = await bybitSignedGet('/v5/account/wallet-balance', { accountType: 'SPOT' }, apiKey, secret);
-        mergeBybitRaw(res, "spot");
-      } catch (e: any) {
-        errors.push(`SPOT: ${e?.message || e}`);
+      let gotUnified = false;
+      if (hasUnified || walletTypes == null) {
+        gotUnified = await attempt("UNIFIED", () => bybitGetWalletBalance("UNIFIED", apiKey, secret));
       }
-
-      // 3. Separate Attempt: FUND (Funding account usually always exists separately)
-      try {
-        attemptedAccountTypes.push("FUND");
-        const res = await bybitSignedGet('/v5/account/wallet-balance', { accountType: 'FUND' }, apiKey, secret);
-        mergeBybitRaw(res, "fund");
-      } catch (e: any) {
-        errors.push(`FUND: ${e?.message || e}`);
+      if (!gotUnified && (hasSpot || walletTypes == null)) {
+        await attempt("SPOT", () => bybitGetAccountCoinsBalance("SPOT", apiKey, secret));
+      }
+      if (!gotUnified && (hasContract || walletTypes == null)) {
+        await attempt("CONTRACT", () => bybitGetAccountCoinsBalance("CONTRACT", apiKey, secret));
+      }
+      if (hasFund || walletTypes == null) {
+        await attempt("FUND", () => bybitGetAccountCoinsBalance("FUND", apiKey, secret));
       }
 
       // If completely failed to get anything and have errors (like HTTP 403 or Invalid API keys)
@@ -355,7 +482,8 @@ export async function balanceHandler(req: Request, res: Response) {
             diagnostics: {
               exchange: "bybit",
               attemptedAccountTypes,
-              errors
+              errors,
+              walletTypes: walletTypes ? Array.from(walletTypes) : null,
             }
           });
         }
@@ -366,7 +494,8 @@ export async function balanceHandler(req: Request, res: Response) {
         diagnostics: {
           exchange: "bybit",
           attemptedAccountTypes,
-          errors
+          errors,
+          walletTypes: walletTypes ? Array.from(walletTypes) : null,
         }
       });
     }

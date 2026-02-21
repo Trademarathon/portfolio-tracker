@@ -27,9 +27,12 @@ export interface MovementAlertsSettings {
     breakDown: boolean;
     goingUp: boolean;
     goingDown: boolean;
+    suddenVolume: boolean;
     extremeUp: boolean;
     extremeDown: boolean;
   };
+  // Optional low-signal fallback to avoid empty feed during slow markets.
+  baselineTrendFallback: boolean;
   // UI
   glowNewAlerts: boolean;
   animateNewAlerts: boolean;
@@ -53,9 +56,11 @@ export const DEFAULT_MOVEMENT_ALERTS_SETTINGS: MovementAlertsSettings = {
     breakDown: true,
     goingUp: true,
     goingDown: true,
+    suddenVolume: true,
     extremeUp: true,
     extremeDown: true,
   },
+  baselineTrendFallback: false,
   glowNewAlerts: true,
   animateNewAlerts: true,
 };
@@ -65,7 +70,15 @@ export function getMovementAlertsSettings(): MovementAlertsSettings {
   try {
     const saved = localStorage.getItem(MOVEMENT_ALERTS_SETTINGS_KEY);
     if (saved) {
-      return { ...DEFAULT_MOVEMENT_ALERTS_SETTINGS, ...JSON.parse(saved) };
+      const parsed = JSON.parse(saved) as Partial<MovementAlertsSettings> & { types?: Partial<MovementAlertsSettings["types"]> };
+      return {
+        ...DEFAULT_MOVEMENT_ALERTS_SETTINGS,
+        ...parsed,
+        types: {
+          ...DEFAULT_MOVEMENT_ALERTS_SETTINGS.types,
+          ...(parsed.types || {}),
+        },
+      };
     }
   } catch (e) {
     console.warn("[MovementAlerts] Failed to parse settings", e);
@@ -75,7 +88,14 @@ export function getMovementAlertsSettings(): MovementAlertsSettings {
 
 export function saveMovementAlertsSettings(settings: Partial<MovementAlertsSettings>) {
   const current = getMovementAlertsSettings();
-  const next = { ...current, ...settings };
+  const next = {
+    ...current,
+    ...settings,
+    types: {
+      ...current.types,
+      ...(settings.types || {}),
+    },
+  };
   localStorage.setItem(MOVEMENT_ALERTS_SETTINGS_KEY, JSON.stringify(next));
   window.dispatchEvent(new CustomEvent("movement-alerts-settings-changed", { detail: next }));
 }

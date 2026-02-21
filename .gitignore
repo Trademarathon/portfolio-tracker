@@ -31,6 +31,8 @@ terminal-dashboard/node_modules
 dev.db
 debug_*.json
 lint_errors.txt
+logs/
+.service/
 
 # debug
 npm-debug.log*

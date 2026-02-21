@@ -959,6 +959,138 @@ body {
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.22);
 }
 
+.tm-pref-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    radial-gradient(130% 135% at -8% -24%, rgba(56, 189, 248, 0.14), transparent 56%),
+    radial-gradient(110% 120% at 108% -28%, rgba(59, 130, 246, 0.12), transparent 58%),
+    linear-gradient(176deg, rgba(16, 19, 27, 0.88), rgba(10, 12, 18, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.02),
+    0 18px 34px rgba(0, 0, 0, 0.32);
+}
+
+.tm-pref-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(122deg, transparent 24%, rgba(255, 255, 255, 0.1) 48%, transparent 72%);
+  transform: translateX(-128%);
+  opacity: 0;
+}
+
+.tm-pref-card:hover::before {
+  opacity: 1;
+  animation: tm-sheen 1.1s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.tm-pref-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.5rem;
+  background: rgba(34, 211, 238, 0.13);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+}
+
+.tm-pref-label {
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+}
+
+.tm-pref-input {
+  width: 100%;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 10, 14, 0.66);
+  color: #f4f4f5;
+  font-size: 0.86rem;
+  line-height: 1.25rem;
+  padding: 0 12px;
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.tm-pref-input::placeholder {
+  color: #6b7280;
+}
+
+.tm-pref-input--tight {
+  height: 40px;
+}
+
+.tm-pref-input--compact {
+  width: 96px;
+}
+
+.tm-pref-input:focus {
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.22);
+  background: rgba(8, 11, 16, 0.86);
+}
+
+.tm-pref-input option {
+  background: #0d1118;
+  color: #e4e4e7;
+}
+
+.tm-pref-chip {
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #a1a1aa;
+  text-transform: uppercase;
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.42rem 0.82rem;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
+}
+
+.tm-pref-chip:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #d4d4d8;
+}
+
+.tm-pref-chip--active {
+  border-color: rgba(34, 211, 238, 0.48);
+  background: rgba(34, 211, 238, 0.16);
+  color: #b7f8ff;
+}
+
+.tm-pref-switch {
+  height: 24px !important;
+  width: 44px !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+
+.tm-pref-switch > span {
+  width: 18px !important;
+  height: 18px !important;
+  background: #ffffff !important;
+}
+
+.tm-pref-switch[data-state="unchecked"] > span {
+  transform: translateX(2px) !important;
+}
+
+.tm-pref-switch[data-state="checked"] > span {
+  transform: translateX(20px) !important;
+}
+
 .tm-notif-shell {
   background:
     radial-gradient(110% 120% at -12% -18%, rgba(34, 211, 238, 0.14), transparent 58%),

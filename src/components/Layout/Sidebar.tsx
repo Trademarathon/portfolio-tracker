@@ -21,6 +21,7 @@ import {
     Sparkles,
 } from "lucide-react";
 import { ToggleTheme } from "@/components/ui/toggle-theme";
+import { Switch } from "@/components/ui/switch";
 import { memo, useCallback, useEffect, useState, useMemo } from "react";
 import { getActiveSession, TradingSession, getSpotPlans } from "@/lib/api/session";
 import { loadAlertHistory, AlertHistory, ALERT_HISTORY_KEY } from "@/lib/api/alerts";
@@ -31,6 +32,14 @@ import { signOut } from "@/lib/supabase/auth";
 import { getValueWithCloud } from "@/lib/supabase/sync";
 import { MAIN_SIDEBAR_ITEMS } from "@/lib/nav-definitions";
 import { useSidebarSessionIntel } from "@/hooks/useSidebarSessionIntel";
+import { useAIInsight } from "@/lib/ai-orchestrator/hooks";
+import { getFeatureRolloutPercent, isFeatureEnabled } from "@/lib/ai-orchestrator/orchestrator";
+import {
+    AI_RUNTIME_CHANGED_EVENT,
+    AI_RUNTIME_ENABLED_STORAGE_KEY,
+    isAIRuntimeEnabled,
+    setAIRuntimeEnabled,
+} from "@/lib/ai-runtime";
 
 // ============ TRADING SESSION HOURS CONFIG ============
 interface TradingHours {
@@ -188,6 +197,8 @@ const Sidebar = memo(({
     // Initialize from storage so Market Session alert count is stable across navigation (no flash of 0)
     const [recentAlerts, setRecentAlerts] = useState<AlertHistory[]>([]);
     const [currentTime, setCurrentTime] = useState<Date | null>(null);
+    const [sessionAdvisoryEnabled, setSessionAdvisoryEnabled] = useState(true);
+    const [aiRuntimeEnabled, setAiRuntimeEnabledState] = useState<boolean>(() => isAIRuntimeEnabled());
     const sessionIntel = useSidebarSessionIntel({
         activeSession,
         isHighVolumeActivity,
@@ -247,11 +258,140 @@ const Sidebar = memo(({
         ? "live"
         : ((tradingHours.color in SESSION_VISUALS ? tradingHours.color : "zinc") as keyof typeof SESSION_VISUALS);
     const sessionVisual = SESSION_VISUALS[sessionVisualTone];
+    const refreshSessionAdvisoryEnabled = useCallback(() => {
+        const enabled = isFeatureEnabled("session_advisory");
+        const rolloutPercent = getFeatureRolloutPercent("session_advisory");
+        setSessionAdvisoryEnabled(aiRuntimeEnabled && enabled && rolloutPercent > 0);
+    }, [aiRuntimeEnabled]);
+    const sessionAIContext = useMemo(() => {
+        const riskSeverity =
+            sessionIntel.riskState === "live" || sessionIntel.riskState === "imminent"
+                ? "critical"
+                : sessionIntel.riskState === "watch" || sessionIntel.riskState === "active"
+                    ? "warning"
+                    : "info";
+        const nextEvent = sessionIntel.nextEvent
+            ? {
+                id: sessionIntel.nextEvent.id,
+                title: sessionIntel.nextEvent.title,
+                impact: sessionIntel.nextEvent.impact,
+                minutesToEvent: sessionIntel.nextEvent.minutesToEvent,
+                isLive: sessionIntel.nextEvent.isLive,
+            }
+            : null;
+        return {
+            snapshotTs: sessionIntel.updatedAt || Date.now(),
+            source: "sidebar-session",
+            sources: ["session-clock", "calendar-events"],
+            dataCoverage: nextEvent ? 0.92 : 0.72,
+            riskSeverity,
+            session: {
+                name: tradingHours.name,
+                shortName: tradingHours.shortName,
+                isOverlap: tradingHours.isOverlap,
+                overlapWith: tradingHours.overlapWith || null,
+                recommendation: sessionIntel.recommendation,
+                riskState: sessionIntel.riskState,
+            },
+            activeTradeSession: activeSession
+                ? {
+                    bias: activeSession.bias || "neutral",
+                    risk: activeSession.risk || "normal",
+                    horizon: activeSession.horizon || "unknown",
+                    live: true,
+                }
+                : { live: false },
+            nextEvent,
+            openPlanCount: activeSpotPlans,
+            unacknowledgedAlertCount,
+            riskSignals: nextEvent
+                ? [
+                    {
+                        rule: "event_window",
+                        severity: riskSeverity,
+                        verdict: riskSeverity === "info" ? "allow" : "warn",
+                        evidence: [
+                            `${nextEvent.title} impact ${nextEvent.impact}`,
+                            nextEvent.isLive
+                                ? "Event is currently live"
+                                : `Event in ${Math.max(0, nextEvent.minutesToEvent)} minutes`,
+                        ],
+                    },
+                ]
+                : [
+                    {
+                        rule: "session_flow",
+                        severity: riskSeverity,
+                        verdict: riskSeverity === "info" ? "allow" : "warn",
+                        evidence: [sessionIntel.recommendation],
+                    },
+                ],
+        };
+    }, [
+        sessionIntel.updatedAt,
+        sessionIntel.nextEvent,
+        sessionIntel.recommendation,
+        sessionIntel.riskState,
+        tradingHours.name,
+        tradingHours.shortName,
+        tradingHours.isOverlap,
+        tradingHours.overlapWith,
+        activeSession,
+        activeSpotPlans,
+        unacknowledgedAlertCount,
+    ]);
+    const { data: sessionAdvisory, loading: sessionAdvisoryLoading } = useAIInsight(
+        "session_advisory",
+        sessionAIContext,
+        [
+            sessionIntel.updatedAt,
+            sessionIntel.riskState,
+            sessionIntel.nextEvent?.id || "none",
+            sessionIntel.nextEvent?.minutesToEvent ?? -999,
+            tradingHours.shortName,
+            tradingHours.isOverlap,
+            activeSession?.bias || "neutral",
+            activeSession?.risk || "normal",
+            activeSpotPlans,
+            unacknowledgedAlertCount,
+        ],
+        !collapsed && !hidden && mounted && sessionAdvisoryEnabled
+    );
+    const sessionAdvisoryBlocked = sessionAdvisory?.signalMeta?.verdict === "block";
+    const sessionAdvisoryText = sessionAdvisoryLoading
+        ? "Analyzing session risk..."
+        : sessionAdvisoryBlocked
+            ? sessionIntel.recommendation
+            : sessionAdvisory?.content || sessionIntel.recommendation;
+    const setAiRuntimeEnabled = useCallback((enabled: boolean) => {
+        setAiRuntimeEnabledState(enabled);
+        setAIRuntimeEnabled(enabled);
+    }, []);
 
     useEffect(() => {
         setMounted(true);
         setCurrentTime(new Date());
     }, []);
+
+    useEffect(() => {
+        const syncRuntime = () => setAiRuntimeEnabledState(isAIRuntimeEnabled());
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === AI_RUNTIME_ENABLED_STORAGE_KEY) syncRuntime();
+        };
+        syncRuntime();
+        window.addEventListener(AI_RUNTIME_CHANGED_EVENT, syncRuntime);
+        window.addEventListener("storage", onStorage);
+        return () => {
+            window.removeEventListener(AI_RUNTIME_CHANGED_EVENT, syncRuntime);
+            window.removeEventListener("storage", onStorage);
+        };
+    }, []);
+
+    useEffect(() => {
+        refreshSessionAdvisoryEnabled();
+        window.addEventListener("ai-feature-toggles-changed", refreshSessionAdvisoryEnabled);
+        return () => window.removeEventListener("ai-feature-toggles-changed", refreshSessionAdvisoryEnabled);
+    }, [refreshSessionAdvisoryEnabled]);
     // Lightweight on-demand prefetch only (avoid preloading every route in desktop webview)
     const prefetchRoute = useCallback((href: string) => {
         router.prefetch(href);
@@ -506,6 +646,34 @@ const Sidebar = memo(({
 
                 {!collapsed && (
                     <div className="mb-2 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-[9px] font-black uppercase tracking-[0.24em] text-zinc-500">AI Engine</p>
+                            <span
+                                className={cn(
+                                    "rounded-md border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.16em]",
+                                    aiRuntimeEnabled
+                                        ? "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"
+                                        : "border-zinc-500/30 bg-zinc-500/10 text-zinc-400"
+                                )}
+                            >
+                                {aiRuntimeEnabled ? "On" : "Off"}
+                            </span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                            <p className="text-[10px] leading-relaxed text-zinc-400">
+                                Pause all AI insights to reduce load and keep the app stable.
+                            </p>
+                            <Switch
+                                checked={aiRuntimeEnabled}
+                                onCheckedChange={(v) => setAiRuntimeEnabled(v)}
+                                aria-label="Toggle AI engine"
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {!collapsed && (
+                    <div className="mb-2 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3">
                         <p className="mb-3 text-[9px] font-black uppercase tracking-[0.24em] text-zinc-500">Theme</p>
                         <ToggleTheme className="border-white/10 bg-zinc-900/50" />
                     </div>
@@ -685,6 +853,36 @@ const Sidebar = memo(({
                                     </div>
                                 )}
                             </div>
+
+                            {sessionAdvisoryEnabled && (
+                                <div className="relative mt-2 rounded-xl border border-white/10 bg-black/30 px-2 py-1.5">
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1 min-w-0">
+                                        <Sparkles className="w-2.5 h-2.5 text-cyan-300 shrink-0" />
+                                        <span className="text-[8px] font-black uppercase tracking-[0.14em] text-cyan-300 truncate">
+                                            AI Session Advisory
+                                        </span>
+                                    </div>
+                                    {sessionAdvisory?.signalMeta?.verdict &&
+                                        sessionAdvisory.signalMeta.verdict !== "block" && (
+                                        <span
+                                            className={cn(
+                                                "text-[8px] px-1.5 py-0.5 rounded border uppercase font-bold shrink-0",
+                                                sessionAdvisory.signalMeta.verdict === "allow" &&
+                                                    "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+                                                sessionAdvisory.signalMeta.verdict === "warn" &&
+                                                    "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                            )}
+                                        >
+                                            {sessionAdvisory.signalMeta.verdict}
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-[8px] leading-relaxed text-zinc-300 line-clamp-2">
+                                    {sessionAdvisoryText}
+                                </p>
+                                </div>
+                            )}
                         </Link>
                     </motion.div>
                 )}

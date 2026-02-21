@@ -1,7 +1,11 @@
 "use client";
 
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, getApiCandidates } from "@/lib/api/client";
 import { recordAIUsage } from "@/lib/api/ai-usage";
+import {
+  AI_RUNTIME_DISABLED_MESSAGE,
+  isAIRuntimeEnabled,
+} from "@/lib/ai-runtime";
 
 export type AIProvider = "auto" | "openai" | "gemini" | "ollama";
 export type AIMessageRole = "system" | "user" | "assistant";
@@ -36,59 +40,79 @@ export const OPENAI_API_KEY_STORAGE = "openai_api_key";
 export const GEMINI_API_KEY_STORAGE = "gemini_api_key";
 export const OLLAMA_BASE_URL_STORAGE = "ollama_base_url";
 export const OLLAMA_MODEL_STORAGE = "ollama_model";
+export const DEFAULT_AI_PROVIDER: AIProvider = "ollama";
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 export const DEFAULT_OLLAMA_MODEL = "llama3.1:8b";
 
-export function getAIProvider(): AIProvider {
-  if (typeof window === "undefined") return "auto";
-  const value = (localStorage.getItem(AI_PROVIDER_KEY) || "auto").trim().toLowerCase();
-  if (value === "openai" || value === "gemini" || value === "ollama" || value === "auto") return value;
-  return "auto";
+function normalizeStoredSetting(value: string | null | undefined, fallback: string): string {
+  const raw = (value || "").trim();
+  if (!raw) return fallback;
+  if (raw.startsWith("{") && raw.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(raw) as { _raw?: unknown; value?: unknown };
+      if (typeof parsed._raw === "string" && parsed._raw.trim()) return parsed._raw.trim();
+      if (typeof parsed.value === "string" && parsed.value.trim()) return parsed.value.trim();
+    } catch {
+      // ignore malformed JSON-like values
+    }
+  }
+  return raw;
 }
 
-export function setAIProvider(provider: AIProvider): void {
+export function getAIProvider(): AIProvider {
+  return DEFAULT_AI_PROVIDER;
+}
+
+export function setAIProvider(_provider: AIProvider): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(AI_PROVIDER_KEY, provider);
+  localStorage.removeItem(OPENAI_API_KEY_STORAGE);
+  localStorage.removeItem(GEMINI_API_KEY_STORAGE);
+  localStorage.setItem(AI_PROVIDER_KEY, DEFAULT_AI_PROVIDER);
   window.dispatchEvent(new Event("ai-provider-changed"));
 }
 
 export function getOpenAIKey(): string {
-  if (typeof window === "undefined") return "";
-  return (localStorage.getItem(OPENAI_API_KEY_STORAGE) || "").trim();
+  return "";
 }
 
 export function getGeminiKey(): string {
-  if (typeof window === "undefined") return "";
-  return (localStorage.getItem(GEMINI_API_KEY_STORAGE) || "").trim();
+  return "";
 }
 
 export function getOllamaBaseUrl(): string {
   if (typeof window === "undefined") return DEFAULT_OLLAMA_BASE_URL;
-  return (localStorage.getItem(OLLAMA_BASE_URL_STORAGE) || DEFAULT_OLLAMA_BASE_URL).trim();
+  return normalizeStoredSetting(localStorage.getItem(OLLAMA_BASE_URL_STORAGE), DEFAULT_OLLAMA_BASE_URL);
 }
 
 export function getOllamaModel(): string {
   if (typeof window === "undefined") return DEFAULT_OLLAMA_MODEL;
-  return (localStorage.getItem(OLLAMA_MODEL_STORAGE) || DEFAULT_OLLAMA_MODEL).trim();
+  return normalizeStoredSetting(localStorage.getItem(OLLAMA_MODEL_STORAGE), DEFAULT_OLLAMA_MODEL);
 }
 
 export function buildAIHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const openai = getOpenAIKey();
-  const gemini = getGeminiKey();
   const ollamaBaseUrl = getOllamaBaseUrl();
   const ollamaModel = getOllamaModel();
-  if (openai) headers["x-openai-api-key"] = openai;
-  if (gemini) headers["x-gemini-api-key"] = gemini;
   if (ollamaBaseUrl) headers["x-ollama-base-url"] = ollamaBaseUrl;
   if (ollamaModel) headers["x-ollama-model"] = ollamaModel;
   return headers;
 }
 
 export async function chatWithAI(payload: AIChatRequest): Promise<AIChatResponse> {
+  if (!isAIRuntimeEnabled()) {
+    return {
+      ok: true,
+      provider: "ollama",
+      model: "runtime-disabled",
+      content: AI_RUNTIME_DISABLED_MESSAGE,
+      attemptedProviders: ["ollama"],
+      fallbackUsed: true,
+    };
+  }
+
   const body: AIChatRequest = {
     ...payload,
-    provider: payload.provider || getAIProvider(),
+    provider: "ollama",
   };
 
   const res = await apiFetch(
@@ -130,24 +154,55 @@ type StreamOptions = {
 };
 
 export async function streamWithAI(payload: AIChatRequest, options: StreamOptions): Promise<AIChatResponse> {
-  const body: AIChatRequest = {
-    ...payload,
-    provider: payload.provider || getAIProvider(),
-  };
-
-  const res = await fetch("/api/ai/stream", {
-    method: "POST",
-    headers: buildAIHeaders(),
-    body: JSON.stringify(body),
-    signal: options.signal,
-  });
-
-  if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || "AI stream failed");
+  if (!isAIRuntimeEnabled()) {
+    options.onDelta(AI_RUNTIME_DISABLED_MESSAGE);
+    return {
+      ok: true,
+      provider: "ollama",
+      model: "runtime-disabled",
+      content: AI_RUNTIME_DISABLED_MESSAGE,
+      attemptedProviders: ["ollama"],
+      fallbackUsed: true,
+    };
   }
 
-  const provider = (res.headers.get("x-ai-provider") || "gemini") as AIChatResponse["provider"];
+  const body: AIChatRequest = {
+    ...payload,
+    provider: "ollama",
+  };
+
+  const candidates = getApiCandidates("/api/ai/stream");
+  let res: Response | null = null;
+  let lastError = "AI stream failed";
+  for (const url of candidates) {
+    try {
+      const attempt = await fetch(url, {
+        method: "POST",
+        headers: buildAIHeaders(),
+        body: JSON.stringify(body),
+        signal: options.signal,
+      });
+      if (attempt.ok && attempt.body) {
+        res = attempt;
+        break;
+      }
+      const maybeJson = await attempt.json().catch(() => null);
+      if (maybeJson && typeof maybeJson.error === "string") {
+        lastError = maybeJson.error;
+      } else {
+        const text = await attempt.text().catch(() => "");
+        if (text) lastError = text;
+      }
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : "AI stream failed";
+    }
+  }
+
+  if (!res || !res.body) {
+    throw new Error(lastError || "AI stream failed");
+  }
+
+  const provider = (res.headers.get("x-ai-provider") || "ollama") as AIChatResponse["provider"];
   const model = res.headers.get("x-ai-model") || payload.model || "unknown";
 
   const reader = res.body.getReader();

@@ -9,7 +9,7 @@ export interface SocialSettings {
   sections: Record<SocialSection, boolean>;
 }
 
-const KEY = "social_x_settings";
+const KEY = "social_feed_settings";
 
 const DEFAULT_ACCOUNTS = [
   "whale_alert",

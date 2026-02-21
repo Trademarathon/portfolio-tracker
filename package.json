@@ -13,8 +13,16 @@
     "lint": "eslint",
     "api-server": "tsx api-server/server.ts",
     "generate-license": "tsx scripts/generate-license.ts",
+    "ai": "tsx scripts/ai.ts",
+    "ai:status": "tsx scripts/ai.ts status",
+    "ai:eval": "tsx scripts/ai-eval.ts",
     "predev": "rm -f .next/dev/lock",
-    "dev:fast": "next dev --webpack -p 3000"
+    "dev:fast": "next dev --webpack -p 3000",
+    "service:start": "bash scripts/service-start.sh",
+    "service:stop": "bash scripts/service-stop.sh",
+    "service:restart": "bash scripts/service-stop.sh && bash scripts/service-start.sh",
+    "service:status": "bash scripts/service-status.sh",
+    "service:logs": "bash scripts/service-logs.sh"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",

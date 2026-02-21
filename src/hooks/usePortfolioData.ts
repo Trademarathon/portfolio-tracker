@@ -11,12 +11,13 @@ import { getChainPortfolio } from "@/lib/api/wallet";
 import { getZerionFullPortfolio } from "@/lib/api/zerion";
 import {
     getHyperliquidAccountState,
+    getHyperliquidOpenOrdersResult,
     getHyperliquidSpotMeta,
     getHyperliquidSpotState,
     parseHyperliquidPositions,
     getHyperliquidAllAssets,
-    getHyperliquidOpenOrders,
     getHyperliquidPerpsMetaAndCtxs,
+    getHyperliquidNotionalVolumeUsd,
     SpotMeta,
     PerpsMetaWithCtx
 } from '@/lib/api/hyperliquid';
@@ -25,6 +26,11 @@ import { EnhancedWebSocketManager } from '@/lib/api/websocket-enhanced';
 
 import { WebSocketConnectionInfo, WebSocketMessage } from '@/lib/api/websocket-types';
 import { processActivities } from '@/lib/api/transactions';
+import {
+    buildCumulativePnlAndDrawdownSeries,
+    buildUtcDayOfWeekBuckets,
+    buildUtcTwoHourBuckets
+} from '@/lib/journal/analytics-core';
 import { useUserHistory } from "./useUserHistory";
 import { useRealTimeData } from "./useRealTimeData";
 
@@ -64,7 +70,8 @@ function isLikelySpamOrFakeToken(asset: { symbol: string; valueUsd: number; pric
         /\.(COM|APP|IO|XYZ|LAT|LOL|NET)\b/, /\bME-QR\b/, /\bVERCEL\.APP\b/, /\bGET\s+(PEPE|TOKEN|COIN|FREE)\b/i,
         /\$\s*(DHT|FOXY|POL|PEPE)\s*(AT|@)/i, /AT\s+HTTPS/i, /\[.*\.COM\]/i,
         /\bREWARD\s+AT\b/, /\bVOUCHER\s+AT\b/, /\bCEX\.LAT\b/, /\bOPCHAIN\.LOL\b/, /\bFIRSTCHEF\.NET\b/,
-        /\s+AT\s+[A-Z0-9.-]+\.(COM|LAT|LOL|NET|APP)\b/ // "SOMETHING AT domain.TLD"
+        /\s+AT\s+[A-Z0-9.-]+\.(COM|LAT|LOL|NET|APP)\b/, // "SOMETHING AT domain.TLD"
+        /\bLARRY\b/, /\bNIGGO\b/, /\bBEN\b/, /\bSNEK\b/ // Known junk/meme spam observed on some chains
     ];
     return spamPatterns.some(p => p.test(combined));
 }
@@ -85,6 +92,17 @@ function normalizeConnectionType(type: unknown): string {
     return String(type || '').toLowerCase().trim();
 }
 
+function sanitizeUiErrorMessage(raw: unknown, fallback = 'Unavailable'): string {
+    const text = String(raw ?? '').replace(/\s+/g, ' ').trim();
+    if (!text) return fallback;
+    if (/<!doctype html|<html|<head|<body|<script/i.test(text)) {
+        return 'Service unavailable (invalid response).';
+    }
+    const maxLen = 180;
+    if (text.length > maxLen) return `${text.slice(0, maxLen - 3)}...`;
+    return text;
+}
+
 function normalizeConnectionRecord(conn: PortfolioConnection): PortfolioConnection {
     return {
         ...conn,
@@ -92,6 +110,28 @@ function normalizeConnectionRecord(conn: PortfolioConnection): PortfolioConnecti
     };
 }
 
+function isFundingLikeTransaction(tx: any): boolean {
+    const feeType = String(tx?.feeType || '').toLowerCase();
+    const side = String(tx?.side || '').toLowerCase();
+    const marketType = String(tx?.marketType || '').toLowerCase();
+    return feeType === 'funding' || side === 'funding' || marketType === 'funding';
+}
+
+function isFuturesLikeTransaction(tx: any): boolean {
+    const instrumentType = String(tx?.instrumentType || '').toLowerCase();
+    const marketType = String(tx?.marketType || '').toLowerCase();
+    const exchange = String(tx?.exchange || '').toLowerCase();
+    const rawSymbol = String(tx?.rawSymbol || tx?.symbol || '').toUpperCase();
+    const symbol = String(tx?.symbol || '').toUpperCase();
+
+    if (instrumentType === 'future') return true;
+    if (marketType === 'perp' || marketType === 'future' || marketType === 'funding') return true;
+    if (exchange === 'hyperliquid') return true;
+    if (/(PERP|SWAP|FUTURES|CONTRACT|:USDT|:USD|USDTM|UMCBL|DMCBL)/i.test(rawSymbol)) return true;
+    if (/(PERP|SWAP|FUTURES|CONTRACT)/i.test(symbol)) return true;
+    if (tx?.leverage !== undefined || tx?.info?.positionIdx !== undefined) return true;
+    return isFundingLikeTransaction(tx);
+}
 
 export function usePortfolioData() {
     const [staticAssets, setStaticAssets] = useState<PortfolioAsset[]>([]);
@@ -203,6 +243,11 @@ export function usePortfolioData() {
         }));
     }, [isDemo, transactions, manualTransactions, spotMeta]);
 
+    const futuresTransactions = useMemo(
+        () => activeTransactions.filter((t: any) => isFuturesLikeTransaction(t)),
+        [activeTransactions]
+    );
+
     const activeTransfers = useMemo(() => {
         const raw = isDemo ? [] : transfers;
         return raw.map((t: any) => ({
@@ -241,10 +286,10 @@ export function usePortfolioData() {
 
         // Filter and calculate
         setFeeStats({
-            spot: calculateStats(activeTransactions.filter(t => t.symbol && !t.symbol.includes('PERP'))),
-            futures: calculateStats(activeTransactions.filter(t => t.symbol && t.symbol.includes('PERP')))
+            spot: calculateStats(activeTransactions.filter((t: any) => !isFuturesLikeTransaction(t))),
+            futures: calculateStats(futuresTransactions.filter((t: any) => !isFundingLikeTransaction(t)))
         });
-    }, [activeTransactions]);
+    }, [activeTransactions, futuresTransactions]);
 
     // Extract symbols for price WS
     // Use JSON.stringify to ensure deep equality check for dependency array
@@ -463,7 +508,14 @@ export function usePortfolioData() {
     };
 
     const updatePositions = (connectionId: string, newPositions: Position[]) => {
-        positionsMapRef.current[connectionId] = newPositions;
+        const connection = connections.find((c) => c.id === connectionId);
+        const exchange = normalizeConnectionType(connection?.type || connection?.name || '');
+        positionsMapRef.current[connectionId] = (Array.isArray(newPositions) ? newPositions : []).map((pos) => ({
+            ...pos,
+            connectionId: pos.connectionId || connectionId,
+            exchange: pos.exchange || exchange || undefined,
+            marketType: pos.marketType || 'perp',
+        }));
         updateState();
     };
 
@@ -634,10 +686,7 @@ export function usePortfolioData() {
                 }
             }
 
-            // Reset working maps, but keep snapshot fallback in state if network fetches fail.
-            ordersMapRef.current = {};
-            assetsMapRef.current = {};
-            positionsMapRef.current = {};
+            // Preserve in-memory maps during refetch to avoid UI blank/flicker when APIs are temporarily unavailable.
 
             // Clear CEX errors so Retry shows Loading, then we set error again if fetch fails
             const cexIds = parsedConnections
@@ -689,9 +738,14 @@ export function usePortfolioData() {
                     wsManagerRef.current = new EnhancedWebSocketManager(
                         parsedConnections,
                         (msg: WebSocketMessage) => {
+                            const conn = parsedConnections.find(c => c.id === msg.connectionId);
+                            const exchange = normalizeConnectionType(conn?.type || msg.source);
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new CustomEvent('ws-message', { detail: { ...msg, exchange } }));
+                            }
+
                             if (msg.type === 'balance' && Array.isArray(msg.data)) {
                                 // Find connection to determine type for proper subType
-                                const conn = parsedConnections.find(c => c.id === msg.connectionId);
                                 const isCex = conn && ['binance', 'bybit', 'hyperliquid'].includes(conn.type);
                                 const subType = isCex ? 'Spot' : undefined;
 
@@ -699,6 +753,9 @@ export function usePortfolioData() {
                                     const total = b.free !== undefined ? b.free + (b.locked || 0) : b.balance;
                                     addAsset(b.symbol, total, msg.source, msg.connectionId, subType);
                                 });
+                                if (typeof window !== 'undefined') {
+                                    window.dispatchEvent(new CustomEvent('balance-update', { detail: msg.data }));
+                                }
                                 updateState();
                             } else if (msg.type === 'blockchain' && msg.data) {
                                 const data = msg.data as Record<string, unknown>;
@@ -710,6 +767,11 @@ export function usePortfolioData() {
                             } else if (msg.type === 'position' && Array.isArray(msg.data)) {
                                 if (msg.connectionId) {
                                     updatePositions(msg.connectionId, msg.data);
+                                }
+                                if (typeof window !== 'undefined') {
+                                    msg.data.forEach((position: unknown) => {
+                                        window.dispatchEvent(new CustomEvent('position-update', { detail: position }));
+                                    });
                                 }
                             }
                         },
@@ -726,7 +788,7 @@ export function usePortfolioData() {
                 // 4. fetching REST data (Initial Snapshot)
                 const restPromises = [];
                 const setConnectionError = (connId: string, message: string) => {
-                    setConnectionErrors(prev => ({ ...prev, [connId]: message }));
+                    setConnectionErrors(prev => ({ ...prev, [connId]: sanitizeUiErrorMessage(message) }));
                 };
                 const clearConnectionError = (connId: string) => {
                     setConnectionErrors(prev => {
@@ -814,33 +876,47 @@ export function usePortfolioData() {
                         if (isHedera) restPromises.push(wrap(fetchWalletChain('HBAR').then(addBalances)));
                         // SUI: fixed – do not modify.
                         if (isSui) {
-                            clearConnectionBreakdown(conn.id);
-                            restPromises.push(wrap(fetchWalletChain('SUI').then(addBalances)));
+                            restPromises.push(wrap(fetchWalletChain('SUI').then((balances) => {
+                                clearConnectionBreakdown(conn.id);
+                                addBalances(balances);
+                            })));
                         }
                         if (isAptos) {
-                            clearConnectionBreakdown(conn.id);
-                            restPromises.push(wrap(fetchWalletChain('APT').then(addBalances)));
+                            restPromises.push(wrap(fetchWalletChain('APT').then((balances) => {
+                                clearConnectionBreakdown(conn.id);
+                                addBalances(balances);
+                            })));
                         }
                         if (isTon) {
-                            clearConnectionBreakdown(conn.id);
-                            restPromises.push(wrap(fetchWalletChain('TON').then(addBalances)));
+                            restPromises.push(wrap(fetchWalletChain('TON').then((balances) => {
+                                clearConnectionBreakdown(conn.id);
+                                addBalances(balances);
+                            })));
                         }
                         if (isTron) restPromises.push(wrap(fetchWalletChain('TRX').then(addBalances)));
                         if (isXrp) restPromises.push(wrap(fetchWalletChain('XRP').then(addBalances)));
                     }
 
                     if (connType === 'binance' && conn.apiKey && conn.secret) {
-                        clearConnectionBreakdown(conn.id);
                         restPromises.push(wrapCex(conn.id, fetchCexBalance('binance', conn.apiKey, conn.secret).then((balances: any[]) => {
+                            clearConnectionBreakdown(conn.id);
                             balances.forEach((b: { symbol: string; balance: number }) => addAsset(b.symbol, b.balance, conn.name, conn.id, 'Spot'));
                         })));
                         restPromises.push(wrap(fetchCexOpenOrders('binance', conn.apiKey, conn.secret).then((orders: any[]) => updateOrders(conn.id, orders))));
                     }
 
                     if (connType === 'bybit' && conn.apiKey && conn.secret) {
-                        clearConnectionBreakdown(conn.id);
+                        let bybitCleared = false;
+                        const ensureBybitClear = () => {
+                            if (bybitCleared) return;
+                            bybitCleared = true;
+                            clearConnectionBreakdown(conn.id);
+                        };
                         const addBybitBalances = (balances: any[], subType: 'Spot' | 'Perp') =>
-                            balances.forEach((b: { symbol: string; balance: number }) => addAsset(b.symbol, b.balance, conn.name, conn.id, subType));
+                            balances.forEach((b: { symbol: string; balance: number }) => {
+                                ensureBybitClear();
+                                addAsset(b.symbol, b.balance, conn.name, conn.id, subType);
+                            });
 
                         const bybitBalanceTask = (async () => {
                             const stables = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'FRAX', 'USDE'];
@@ -930,20 +1006,25 @@ export function usePortfolioData() {
                     }
 
                     if (connType === 'okx' && conn.apiKey && conn.secret) {
-                        clearConnectionBreakdown(conn.id);
                         restPromises.push(wrapCex(conn.id, fetchCexBalance('okx', conn.apiKey, conn.secret).then((balances: any[]) => {
+                            clearConnectionBreakdown(conn.id);
                             balances.forEach((b: { symbol: string; balance: number }) => addAsset(b.symbol, b.balance, conn.name, conn.id, 'Spot'));
                         })));
                         restPromises.push(wrap(fetchCexOpenOrders('okx', conn.apiKey, conn.secret).then((orders: any[]) => updateOrders(conn.id, orders))));
                     }
 
                     if (connType === 'hyperliquid' && conn.walletAddress) {
-                        // Clear stale breakdown entries for this connection before fetching fresh data
-                        clearConnectionBreakdown(conn.id);
+                        let hlCleared = false;
+                        const ensureHyperliquidClear = () => {
+                            if (hlCleared) return;
+                            hlCleared = true;
+                            clearConnectionBreakdown(conn.id);
+                        };
 
                         restPromises.push(wrap(Promise.all([
                             getHyperliquidSpotState(conn.walletAddress).then(async spotState => {
                                 if (spotState) {
+                                    ensureHyperliquidClear();
                                     // Avoid repeated meta fetches; use cached spot meta if present
                                     const meta = spotMetaRef.current ?? await getHyperliquidSpotMeta();
                                     if (meta && !spotMetaRef.current) setSpotMeta(meta);
@@ -967,6 +1048,7 @@ export function usePortfolioData() {
                             }),
                             getHyperliquidAccountState(conn.walletAddress).then(state => {
                                 if (state) {
+                                    ensureHyperliquidClear();
                                     const rawPositions = parseHyperliquidPositions(state);
                                     updatePositions(conn.id, rawPositions);
                                     const accountValue = [
@@ -987,8 +1069,10 @@ export function usePortfolioData() {
                                     }
                                 }
                             }),
-                            getHyperliquidOpenOrders(conn.walletAddress, conn.name).then(orders => {
-                                updateOrders(conn.id, orders);
+                            getHyperliquidOpenOrdersResult(conn.walletAddress, conn.name).then(result => {
+                                if (result.ok) {
+                                    updateOrders(conn.id, result.orders);
+                                }
                             })
                         ])));
                     }
@@ -1123,7 +1207,9 @@ export function usePortfolioData() {
         })).sort((a, b) => b.valueUsd - a.valueUsd);
 
         if (hideDust) {
-            list = list.filter(a => a.valueUsd >= 1.0 || a.balance > 1000); // Filter dust: <$1 OR small balance
+            // Hide if value is <$1 AND (it has no price OR balance is suspicious)
+            // If value is 0, we only keep it if it's a known symbol or has some relevance
+            list = list.filter(a => a.valueUsd >= 1.0 || (a.valueUsd > 0 && a.balance > 0));
         }
         // Internal synthetic token used for Hyperliquid account equity; do not show in user asset inventory.
         list = list.filter(a => a.symbol !== 'HL_ACCOUNT');
@@ -1270,34 +1356,48 @@ export function usePortfolioData() {
     }, [activeTransactions, activeTransfers, connections]);
 
     const futuresAnalytics = useMemo(() => {
-        if (!activeTransactions || activeTransactions.length === 0) return null;
+        const futuresTradeEvents = (futuresTransactions || []).filter((t: any) => !isFundingLikeTransaction(t));
+        const futuresFundingEvents = (activeFunding || []).map((f: any) => ({
+            ...f,
+            instrumentType: 'future',
+            marketType: 'funding',
+            feeType: 'funding',
+            side: 'funding',
+        }));
+        if (futuresTradeEvents.length === 0 && futuresFundingEvents.length === 0) return null;
 
-        // Filter and sort trades
-        const sortedTrades = [...activeTransactions]
-            .filter(t => t.exchange === 'Hyperliquid' || t.pnl !== undefined)
+        // Build unified chronological event stream for futures (realized trades + funding)
+        const sortedTrades = [...futuresTradeEvents, ...futuresFundingEvents]
+            .filter((t: any) => t.pnl !== undefined && Number.isFinite(Number(t.timestamp)))
             .sort((a, b) => a.timestamp - b.timestamp);
+        if (sortedTrades.length === 0) return null;
 
-        let cumulativePnl = 0;
-        let maxPnl = 0;
-        const pnlSeries: { date: number; value: number }[] = [];
-        const drawdownSeries: { date: number; value: number }[] = [];
+        const seriesStats = buildCumulativePnlAndDrawdownSeries(sortedTrades, {
+            getTimestamp: (event) => Number(event.timestamp),
+            getPnlDelta: (event) => Number(event.pnl || 0) - Number(event.fee || 0),
+        });
 
         let totalWin = 0;
         let totalLoss = 0;
         let winCount = 0;
         let lossCount = 0;
         let volumeTraded = 0;
+        let fundingPnl = 0;
+        let tradePnl = 0;
 
         sortedTrades.forEach(t => {
-            const pnl = (t.pnl || 0) - (t.fee || 0);
-            cumulativePnl += pnl;
-            volumeTraded += (t.amount * (t.price || 1));
+            const pnl = Number(t.pnl || 0) - Number(t.fee || 0);
+            const isFunding = isFundingLikeTransaction(t);
 
-            pnlSeries.push({ date: t.timestamp, value: cumulativePnl });
+            if (isFunding) {
+                fundingPnl += pnl;
+                return;
+            }
 
-            if (cumulativePnl > maxPnl) maxPnl = cumulativePnl;
-            const dd = maxPnl > 0 ? cumulativePnl - maxPnl : 0;
-            drawdownSeries.push({ date: t.timestamp, value: dd });
+            tradePnl += pnl;
+            const amount = Math.abs(Number(t.amount || 0));
+            const price = Math.abs(Number(t.price || 0) || 1);
+            volumeTraded += amount * price;
 
             if (pnl > 0) {
                 totalWin += pnl;
@@ -1314,32 +1414,33 @@ export function usePortfolioData() {
         const avgLoss = lossCount > 0 ? totalLoss / lossCount : 0;
         const profitFactor = totalLoss > 0 ? totalWin / totalLoss : totalWin > 0 ? 99 : 0;
 
-        // Session Analysis
-        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const dayOfWeek = days.map(d => ({ day: d, pnl: 0, count: 0, wins: 0 }));
-        const timeOfDay = Array.from({ length: 12 }, (_, i) => ({ hour: i * 2, pnl: 0, count: 0, wins: 0 }));
+        const sessionEvents = sortedTrades.filter((event: any) => !isFundingLikeTransaction(event));
+        const dayOfWeek = buildUtcDayOfWeekBuckets(sessionEvents, {
+            getTimestamp: (event) => Number(event.timestamp),
+            getPnl: (event) => Number(event.pnl || 0) - Number(event.fee || 0),
+            dayLabels: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        }).map((bucket) => ({
+            day: bucket.day,
+            pnl: bucket.pnl,
+            count: bucket.count,
+            wins: bucket.wins,
+        }));
 
-        sortedTrades.forEach(t => {
-            const pnl = (t.pnl || 0) - (t.fee || 0);
-            const date = new Date(t.timestamp);
-
-            const dayIdx = date.getDay();
-            dayOfWeek[dayIdx].pnl += pnl;
-            dayOfWeek[dayIdx].count++;
-            if (pnl > 0) dayOfWeek[dayIdx].wins++;
-
-            const hour = date.getHours();
-            const hourIdx = Math.floor(hour / 2);
-            timeOfDay[hourIdx].pnl += pnl;
-            timeOfDay[hourIdx].count++;
-            if (pnl > 0) timeOfDay[hourIdx].wins++;
-        });
+        const timeOfDay = buildUtcTwoHourBuckets(sessionEvents, {
+            getTimestamp: (event) => Number(event.timestamp),
+            getPnl: (event) => Number(event.pnl || 0) - Number(event.fee || 0),
+        }).map((bucket) => ({
+            hour: bucket.hour,
+            pnl: bucket.pnl,
+            count: bucket.count,
+            wins: bucket.wins,
+        }));
 
         return {
-            pnlSeries,
-            drawdownSeries,
+            pnlSeries: seriesStats.pnlSeries,
+            drawdownSeries: seriesStats.drawdownSeries,
             metrics: {
-                totalPnl: cumulativePnl,
+                totalPnl: seriesStats.totalPnl,
                 winRate,
                 winCount,
                 lossCount,
@@ -1348,14 +1449,17 @@ export function usePortfolioData() {
                 avgLoss,
                 volumeTraded,
                 profitFactor,
-                maxDrawdown: Math.min(...drawdownSeries.map(d => d.value), 0)
+                maxDrawdown: seriesStats.maxDrawdown,
+                tradePnl,
+                fundingPnl,
+                futuresEventCount: sortedTrades.length,
             },
             session: {
                 dayOfWeek,
                 timeOfDay
             }
         };
-    }, [activeTransactions]);
+    }, [futuresTransactions, activeFunding]);
 
     const futuresMarketData = useMemo(() => {
         if (!perpMeta) return {};
@@ -1365,10 +1469,10 @@ export function usePortfolioData() {
             if (ctx) {
                 const symbol = normalizeSymbol(u.name);
                 data[symbol] = {
-                    funding: parseFloat(ctx.funding),
-                    oi: parseFloat(ctx.openInterest),
-                    volume24h: parseFloat(ctx.dayNtlVlm),
-                    markPrice: parseFloat(ctx.markPx)
+                    funding: parseFloat(ctx.funding || "0"),
+                    oi: parseFloat(ctx.openInterest || "0"),
+                    volume24h: getHyperliquidNotionalVolumeUsd(ctx),
+                    markPrice: parseFloat(ctx.markPx || "0")
                 };
             }
         });

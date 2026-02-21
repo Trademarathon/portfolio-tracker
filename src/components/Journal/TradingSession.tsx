@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { 
     Plus, X, BookOpen, TrendingUp, TrendingDown, Minus,
-    Clock, Target, Shield, Zap, Hash, AlertTriangle, AlertCircle, Check,
-    ChevronDown, ChevronRight, Save, Trash2, Edit2, Play, Square, Activity, Search,
+    Target, Shield, Zap, AlertCircle,
+    ChevronRight, Save, Trash2, Edit2, Play, Activity, Search,
     Info
 } from "lucide-react";
 import { v4 as uuidv4 } from 'uuid';
@@ -63,8 +63,6 @@ import {
     syncSpotPlansWithAlerts, 
     syncPerpPlansWithAlerts,
     getPlaybookAlertsForSymbol,
-    PlaybookLevelAlert,
-    loadPlaybookAlerts,
 } from "@/lib/api/alerts";
 import { PlaybookDedicatedFeed } from "@/components/Journal/PlaybookDedicatedFeed";
 
@@ -97,6 +95,12 @@ const RISK_OPTIONS: { value: RiskType; label: string }[] = [
     { value: 'conservative', label: 'Conservative' },
     { value: 'normal', label: 'Normal' },
     { value: 'aggressive', label: 'Aggressive' },
+];
+
+const STABLECOINS: string[] = [
+    'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'USDD', 'GUSD',
+    'FRAX', 'LUSD', 'SUSD', 'CUSD', 'UST', 'MIM', 'FEI', 'TRIBE',
+    'EURC', 'EURS', 'EURT', 'PYUSD', 'FDUSD', 'USDE', 'CRVUSD'
 ];
 
 const CONTEXT_OPTIONS: { value: ContextTag; label: string }[] = [
@@ -981,10 +985,6 @@ function PlaybookCreator({ isOpen, onClose, onSave, editPlaybook }: PlaybookCrea
         );
     };
 
-    const addInvalidCondition = () => {
-        setInvalidConditions(prev => [...prev, { type: 'price', action: 'break' }]);
-    };
-
     const updateInvalidCondition = (index: number, updates: Partial<InvalidCondition>) => {
         setInvalidConditions(prev => prev.map((c, i) => i === index ? { ...c, ...updates } : c));
     };
@@ -1730,11 +1730,10 @@ function filterAndSortPairSuggestions(
         .slice(0, 15);
 }
 
-function SpotPlansPanel({ onClose }: { onClose: () => void }) {
+function SpotPlansPanel({ onClose: _onClose }: { onClose: () => void }) {
     const { assets, connections } = usePortfolio();
     const { spotPairs, spotPairsWithExchange, isLoading: pairsLoading, hasConnectedExchanges } = useExchangePairs(connections);
     const [spotPlans, setSpotPlans] = useState<SpotPlan[]>([]);
-    const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
     const [editingPlan, setEditingPlan] = useState<SpotPlan | null>(null);
     const [showEditor, setShowEditor] = useState(false);
     const [newSymbol, setNewSymbol] = useState('');
@@ -1744,13 +1743,6 @@ function SpotPlansPanel({ onClose }: { onClose: () => void }) {
     useEffect(() => {
         setSpotPlans(getSpotPlans());
     }, []);
-
-    // Stablecoins to exclude from spot plans
-    const STABLECOINS = [
-        'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'USDD', 'GUSD', 
-        'FRAX', 'LUSD', 'SUSD', 'CUSD', 'UST', 'MIM', 'FEI', 'TRIBE',
-        'EURC', 'EURS', 'EURT', 'PYUSD', 'FDUSD', 'USDE', 'CRVUSD'
-    ];
 
     // Get unique coins from assets (excluding stablecoins)
     const availableCoins = useMemo(() => {
@@ -2128,7 +2120,7 @@ function SpotPlanEditor({
         onTranscript: (text) => setNotes(text),
     });
     const [scenarios, setScenarios] = useState<Scenario[]>(plan.scenarios);
-    const [invalidConditions, setInvalidConditions] = useState<InvalidCondition[]>(plan.invalidConditions);
+    const [invalidConditions, _setInvalidConditions] = useState<InvalidCondition[]>(plan.invalidConditions);
     const [alertsCount, setAlertsCount] = useState(0);
     const [alertsSynced, setAlertsSynced] = useState(false);
 
@@ -2727,7 +2719,7 @@ function SpotPlanEditor({
 
 // ============ PERP PLANS PANEL ============
 
-function PerpPlansPanel({ onClose }: { onClose: () => void }) {
+function PerpPlansPanel({ onClose: _onClose }: { onClose: () => void }) {
     const { connections } = usePortfolio();
     const { perpPairs, perpPairsWithExchange, isLoading: pairsLoading, hasConnectedExchanges } = useExchangePairs(connections);
     const [perpPlans, setPerpPlans] = useState<PerpPlan[]>([]);

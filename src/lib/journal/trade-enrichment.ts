@@ -34,6 +34,43 @@ function toFiniteNumber(...values: unknown[]): number {
   return 0;
 }
 
+function toOptionalFiniteNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function normalizeTimestampMs(value: unknown, fallback?: number): number {
+  const n = toOptionalFiniteNumber(value);
+  const candidate = n ?? fallback;
+  if (!candidate || !Number.isFinite(candidate) || candidate <= 0) return Date.now();
+  if (candidate > 1e17) return Math.round(candidate / 1_000_000); // ns -> ms
+  if (candidate > 1e14) return Math.round(candidate / 1_000); // us -> ms
+  if (candidate < 1e12) return Math.round(candidate * 1_000); // sec -> ms
+  return Math.round(candidate); // already ms
+}
+
+function normalizeMaybeTimestampMs(value: unknown): number | undefined {
+  const n = toOptionalFiniteNumber(value);
+  if (!n || n <= 0 || !Number.isFinite(n)) return undefined;
+  return normalizeTimestampMs(n);
+}
+
+function resolveHoldTimeMs(rawHold: number | undefined, entryTs?: number, exitTs?: number): number | undefined {
+  if (!rawHold || rawHold <= EPS) {
+    if (entryTs && exitTs && exitTs > entryTs) return exitTs - entryTs;
+    return undefined;
+  }
+  if (!(entryTs && exitTs && exitTs > entryTs)) return rawHold;
+  const range = exitTs - entryTs;
+  const deltaMs = Math.abs(rawHold - range);
+  const deltaSec = Math.abs(rawHold * 1000 - range);
+  if (deltaSec < deltaMs) return rawHold * 1000;
+  return rawHold;
+}
+
 function normalizeExchange(value: unknown): string {
   return String(value || "").toLowerCase().trim();
 }
@@ -42,6 +79,39 @@ function normalizeSide(value: unknown): "buy" | "sell" {
   const side = String(value || "").toLowerCase();
   if (side === "sell" || side === "short" || side === "s") return "sell";
   return "buy";
+}
+
+function isIndexAliasSymbol(value: unknown): boolean {
+  const s = String(value || "").trim();
+  return /^@?\d+$/.test(s);
+}
+
+function pickRawSymbol(
+  t: Record<string, unknown>,
+  info: Record<string, unknown>
+): string {
+  const candidates = [
+    t.rawSymbol,
+    info.symbol,
+    info.s,
+    info.coin,
+    t.symbol,
+    t.asset,
+  ];
+
+  let fallback = "";
+  for (const candidate of candidates) {
+    const raw = String(candidate || "").trim();
+    if (!raw) continue;
+    const normalized = normalizeSymbol(raw);
+    if (!normalized) continue;
+    if (isIndexAliasSymbol(raw) || isIndexAliasSymbol(normalized)) {
+      if (!fallback) fallback = raw;
+      continue;
+    }
+    return raw;
+  }
+  return fallback;
 }
 
 function tradeKey(trade: JournalTradeRecord): string {
@@ -60,13 +130,13 @@ export function normalizeJournalTrade(raw: unknown, fallbackIndex = 0): JournalT
   const t = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const info = (t.info && typeof t.info === "object" ? t.info : {}) as Record<string, unknown>;
 
-  const timestamp = toFiniteNumber(t.timestamp, info.execTime, info.tradeTime, Date.now());
-  const rawSymbol = String(t.rawSymbol || t.symbol || t.asset || info.symbol || info.s || "").trim();
+  const timestamp = normalizeTimestampMs(toOptionalFiniteNumber(t.timestamp, info.execTime, info.tradeTime), Date.now());
+  const rawSymbol = pickRawSymbol(t, info);
   const symbol = normalizeSymbol(rawSymbol);
   const side = normalizeSide(t.side || t.type);
   const price = toFiniteNumber(t.price, info.execPrice, info.avgPrice);
   const amount = toFiniteNumber(t.amount, t.qty, t.size, info.execQty, info.qty);
-  const explicitPnL = toFiniteNumber(t.realizedPnl, t.pnl, info.closedPnl, info.execPnl, info.cumRealisedPnl);
+  const explicitPnL = toOptionalFiniteNumber(t.realizedPnl, t.pnl, info.closedPnl, info.execPnl, info.cumRealisedPnl);
   const feeUsd = Math.abs(
     toFiniteNumber(
       t.fees,
@@ -88,11 +158,16 @@ export function normalizeJournalTrade(raw: unknown, fallbackIndex = 0): JournalT
       `${normalizeExchange(t.exchange || "ex")}-${symbol || "sym"}-${timestamp}-${side}-${fallbackIndex}`
   );
 
-  const status = String(t.status || "closed").toLowerCase();
+  const rawStatus = String(t.status || "").toLowerCase().trim();
+  const status = rawStatus || "closed";
   const isOpen =
     typeof t.isOpen === "boolean"
       ? t.isOpen
-      : status === "open";
+      : rawStatus === "open"
+        ? true
+        : rawStatus === "closed"
+          ? false
+          : undefined;
 
   return {
     ...(t as Partial<JournalTradeRecord>),
@@ -109,11 +184,11 @@ export function normalizeJournalTrade(raw: unknown, fallbackIndex = 0): JournalT
     pnl: explicitPnL,
     fees: feeUsd,
     funding,
-    entryPrice: toFiniteNumber(t.entryPrice),
-    exitPrice: toFiniteNumber(t.exitPrice),
-    entryTime: toFiniteNumber(t.entryTime, timestamp),
-    exitTime: toFiniteNumber(t.exitTime),
-    holdTime: toFiniteNumber(t.holdTime),
+    entryPrice: toOptionalFiniteNumber(t.entryPrice, info.entryPrice, info.entryPx),
+    exitPrice: toOptionalFiniteNumber(t.exitPrice, info.exitPrice, info.closePrice),
+    entryTime: normalizeMaybeTimestampMs(toOptionalFiniteNumber(t.entryTime, info.entryTime)),
+    exitTime: normalizeMaybeTimestampMs(toOptionalFiniteNumber(t.exitTime, info.exitTime, info.closeTime)),
+    holdTime: toOptionalFiniteNumber(t.holdTime, info.holdTime),
     isOpen,
     info,
     cost: toFiniteNumber(t.cost, price * amount),
@@ -169,7 +244,7 @@ function lifecycleEnrich(group: JournalTradeRecord[]): JournalTradeRecord[] {
     const qty = Math.max(0, toFiniteNumber(trade.amount));
     const price = Math.max(0, toFiniteNumber(trade.price));
     const feeUsd = Math.max(0, toFiniteNumber(trade.fees, trade.feeUsd, trade.fee));
-    const explicitPnl = toFiniteNumber(trade.realizedPnl, trade.pnl);
+    const explicitPnl = toOptionalFiniteNumber(trade.realizedPnl, trade.pnl);
 
     let closedQty = 0;
     let closedCost = 0;
@@ -201,31 +276,53 @@ function lifecycleEnrich(group: JournalTradeRecord[]): JournalTradeRecord[] {
       }
     }
 
-    let realized = explicitPnl;
-    const explicitIsMeaningful = Math.abs(explicitPnl) > EPS;
-    if (!explicitIsMeaningful && closedQty > EPS) {
+    let realized = explicitPnl ?? 0;
+    if (explicitPnl === undefined && closedQty > EPS) {
       realized = realizedFromLifecycle - feeUsd;
     }
 
     const computedEntry = closedQty > EPS ? closedCost / closedQty : price;
     const computedExit = closedQty > EPS ? price : 0;
     const computedHold = closedQty > EPS ? holdMsQty / closedQty : 0;
+    const computedEntryTime = closedQty > EPS ? Math.max(0, Math.round(trade.timestamp - computedHold)) : undefined;
 
-    const entryPrice = toFiniteNumber(trade.entryPrice, computedEntry);
-    const exitPrice = toFiniteNumber(trade.exitPrice, computedExit);
-    const holdTime = toFiniteNumber(trade.holdTime, computedHold);
+    const explicitEntryPrice = toOptionalFiniteNumber(trade.entryPrice);
+    const explicitExitPrice = toOptionalFiniteNumber(trade.exitPrice);
+    const explicitEntryTime = normalizeMaybeTimestampMs(trade.entryTime);
+    const explicitExitTime = normalizeMaybeTimestampMs(trade.exitTime);
+    const explicitHoldTime = toOptionalFiniteNumber(trade.holdTime);
+    const lifecycleIsOpen =
+      remainder > EPS ||
+      (closedQty <= EPS && explicitPnl === undefined && explicitExitPrice === undefined && explicitExitTime === undefined);
+    const computedIsOpen =
+      typeof trade.isOpen === "boolean"
+        ? trade.isOpen
+        : String(trade.status || "").toLowerCase() === "open"
+          ? true
+          : lifecycleIsOpen;
+    const computedStatus = computedIsOpen ? "open" : "closed";
+
+    const entryPrice = (closedQty > EPS ? computedEntry : explicitEntryPrice) ?? explicitEntryPrice ?? computedEntry;
+    const exitPrice = (closedQty > EPS ? computedExit : explicitExitPrice) ?? explicitExitPrice ?? computedExit;
+    const entryTime = explicitEntryTime ?? computedEntryTime ?? trade.timestamp;
+    const exitTime = exitPrice > EPS ? (explicitExitTime ?? trade.timestamp) : explicitExitTime;
+    const holdTime = closedQty > EPS
+      ? computedHold
+      : resolveHoldTimeMs(explicitHoldTime, entryTime, exitTime);
 
     out.push({
       ...trade,
       entryPrice: entryPrice > EPS ? entryPrice : undefined,
       exitPrice: exitPrice > EPS ? exitPrice : undefined,
-      entryTime: toFiniteNumber(trade.entryTime, trade.timestamp),
-      exitTime: exitPrice > EPS ? toFiniteNumber(trade.exitTime, trade.timestamp) : undefined,
-      holdTime: holdTime > EPS ? holdTime : undefined,
+      entryTime,
+      exitTime: exitPrice > EPS ? exitTime : undefined,
+      holdTime: holdTime && holdTime > EPS ? holdTime : undefined,
       realizedPnl: realized,
       pnl: realized,
       fees: feeUsd,
       funding: toFiniteNumber(trade.funding),
+      isOpen: computedIsOpen,
+      status: computedStatus,
     });
   });
 

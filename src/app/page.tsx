@@ -138,7 +138,7 @@ export default function DashboardPage() {
     };
   }, [assets, typedPositions, totalValue, totalPnlUsd, totalPnlPercent, orders.length]);
 
-  const { data: aiOverviewPulse, loading: aiOverviewLoading } = useAIInsight(
+  const { data: aiOverviewPulse, loading: aiOverviewLoading, error: aiOverviewError } = useAIInsight(
     "overview_pulse",
     overviewContext,
     [overviewContext],
@@ -271,6 +271,7 @@ export default function DashboardPage() {
                   title="Overview Pulse"
                   response={aiOverviewPulse}
                   loading={aiOverviewLoading}
+                  error={aiOverviewError}
                 />
               </motion.div>
               <motion.div variants={item} className="relative">

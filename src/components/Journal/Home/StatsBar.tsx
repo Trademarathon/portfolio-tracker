@@ -3,12 +3,20 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { useJournal } from "@/contexts/JournalContext";
+import type { JournalStats, JournalTrade } from "@/contexts/JournalContext";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { DollarSign, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
 
-export function StatsBar() {
-    const { stats, filteredTrades, preferences } = useJournal();
+type StatsBarProps = {
+    stats?: JournalStats;
+    trades?: JournalTrade[];
+};
+
+export function StatsBar({ stats: statsOverride, trades: tradesOverride }: StatsBarProps = {}) {
+    const { stats: journalStats, filteredTrades: journalTrades, preferences } = useJournal();
     const { totalValue } = usePortfolio();
+    const stats = statsOverride ?? journalStats;
+    const filteredTrades = tradesOverride ?? journalTrades;
 
     // Prefer live portfolio balance from connected accounts.
     // Fall back to trade notional when no balance snapshot is available.
@@ -98,7 +106,7 @@ export function StatsBar() {
                                 fill="none"
                                 stroke="#ef4444"
                                 strokeWidth="4"
-                                strokeDasharray={`${(100 - stats.winRate - (stats.breakevenTrades / stats.totalTrades * 100 || 0)) * 0.88} 88`}
+                                strokeDasharray={`${(100 - stats.winRate) * 0.88} 88`}
                                 strokeDashoffset={`${-stats.winRate * 0.88}`}
                                 strokeLinecap="round"
                             />

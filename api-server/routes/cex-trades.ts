@@ -13,6 +13,35 @@ const expandedPairs = [
   "BRETT/USDT", "MOG/USDT", "SPX/USDT", "POPCAT/USDT", "MEW/USDT", "JUP/USDT", "PYTH/USDT",
 ];
 
+function classifyTrade(item: any, exchange: string): { instrumentType: 'future' | 'crypto'; marketType: 'perp' | 'future' | 'spot' } {
+  const rawSymbol = String(item?.symbol || item?.info?.symbol || "").toUpperCase();
+  const hint = [
+    item?.marketType,
+    item?.category,
+    item?.contractType,
+    item?.type,
+    item?.info?.category,
+    item?.info?.marketType,
+    item?.info?.instType,
+  ]
+    .filter(Boolean)
+    .map((v) => String(v).toLowerCase())
+    .join(" ");
+
+  const isDerivative =
+    exchange === "hyperliquid" ||
+    /PERP|SWAP|FUTURES|CONTRACT|:USDT|:USD|USDTM|UMCBL|DMCBL/i.test(rawSymbol) ||
+    /(perp|swap|future|futures|linear|inverse|contract|derivative)/i.test(hint) ||
+    item?.leverage !== undefined ||
+    item?.info?.positionIdx !== undefined;
+
+  if (isDerivative) {
+    const marketType = /(future|futures|contract)/i.test(hint) ? "future" : "perp";
+    return { instrumentType: "future", marketType };
+  }
+  return { instrumentType: "crypto", marketType: "spot" };
+}
+
 export async function tradesHandler(req: Request, res: Response) {
   try {
     const exchange = req.body?.exchange ?? req.body?.exchangeId;
@@ -129,6 +158,7 @@ export async function tradesHandler(req: Request, res: Response) {
     }
     const normalize = (items: any[]) =>
       items.map((item) => ({
+        ...classifyTrade(item, exchange),
         id: item.id || `mock-trade-${Math.random()}`,
         symbol: normalizeSymbol(item.symbol),
         rawSymbol: item.symbol,

@@ -153,32 +153,9 @@ export function ExchangeProvider({ children }: { children: ReactNode }) {
         };
         window.addEventListener('storage', handleStorageChange);
 
-        // Listen for orders updates from useHighSpeedSync
-        const handleOrdersUpdated = (e: Event) => {
-            const { connectionId, orders } = (e as CustomEvent).detail;
-            if (connectionId && orders) {
-                ordersMapRef.current.set(connectionId, orders);
-                setOrdersVersion(v => v + 1);
-            }
-        };
-
-        // Listen for positions updates from useHighSpeedSync
-        const handlePositionsUpdated = (e: Event) => {
-            const { connectionId, positions } = (e as CustomEvent).detail;
-            if (connectionId && positions) {
-                positionsMapRef.current.set(connectionId, positions);
-                setPositionsVersion(v => v + 1);
-            }
-        };
-
-        window.addEventListener('orders-updated', handleOrdersUpdated);
-        window.addEventListener('positions-updated', handlePositionsUpdated);
-
         return () => {
             window.removeEventListener('connections-changed', handleConnectionsChanged);
             window.removeEventListener('storage', handleStorageChange);
-            window.removeEventListener('orders-updated', handleOrdersUpdated);
-            window.removeEventListener('positions-updated', handlePositionsUpdated);
         };
     }, []);
 

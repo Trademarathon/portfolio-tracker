@@ -1,22 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { loadSocialSettings, saveSocialSettings, type SocialSettings } from "@/lib/social-settings";
-import { getXAuthUrl, getXStatus, disconnectX } from "@/lib/api/social";
 import { cn } from "@/lib/utils";
 
 export function SocialSettings() {
   const [settings, setSettings] = useState<SocialSettings>(loadSocialSettings());
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-
-  useEffect(() => {
-    getXStatus().then((s) => setConnected(!!s.connected));
-  }, []);
 
   const update = (next: Partial<SocialSettings>) => {
     const merged = { ...settings, ...next };
@@ -24,48 +16,19 @@ export function SocialSettings() {
     saveSocialSettings(merged);
   };
 
-  const connect = async () => {
-    setConnecting(true);
-    const url = await getXAuthUrl();
-    setConnecting(false);
-    if (url) window.open(url, "_blank", "width=540,height=720");
-  };
-
-  const disconnect = async () => {
-    await disconnectX();
-    setConnected(false);
-  };
-
   return (
     <Card className="bg-card/50 backdrop-blur-xl border-border">
       <CardHeader>
-        <CardTitle className="text-base">Social Integration (X)</CardTitle>
-        <CardDescription>Pull relevant posts for your tickers and curated accounts.</CardDescription>
+        <CardTitle className="text-base">Social Feed Settings</CardTitle>
+        <CardDescription>External social integration is disabled. Configure local feed filters here.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-medium text-white">Enable Social Feed</div>
-            <div className="text-xs text-zinc-500">Show X posts in AI Feed.</div>
+            <div className="text-xs text-zinc-500">Enable social feed cards where supported.</div>
           </div>
           <Switch checked={settings.enabled} onCheckedChange={(v) => update({ enabled: v })} />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-white">Connection</div>
-            <div className="text-xs text-zinc-500">{connected ? "Connected to X" : "Not connected"}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={connect} disabled={connecting}>
-              {connecting ? "Opening..." : connected ? "Reconnect" : "Connect"}
-            </Button>
-            {connected && (
-              <Button size="sm" variant="secondary" onClick={disconnect}>
-                Disconnect
-              </Button>
-            )}
-          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

@@ -12,7 +12,7 @@ export interface UseVoiceRecognitionOptions {
   interimResults?: boolean;
   /** Called when transcript is updated (interim or final) */
   onTranscript?: (transcript: string, isFinal: boolean) => void;
-  /** Force Whisper mode (record → transcribe). Uses local model (free) or OpenAI API if set. Falls back to Web Speech if unavailable. */
+  /** Force Whisper mode (record → transcribe). Uses local transcription only. Falls back to Web Speech if unavailable. */
   preferWhisper?: boolean;
 }
 
@@ -55,7 +55,7 @@ export function useVoiceRecognition(options: UseVoiceRecognitionOptions = {}) {
     setIsSupported(isSpeechRecognitionSupported() || isMediaRecorderSupported());
   }, []);
 
-  // Check if Whisper is available: local (free, no API) or OpenAI API
+  // Check if Whisper is available: local only
   useEffect(() => {
     if (!preferWhisper) {
       setWhisperAvailable(false);
@@ -65,28 +65,10 @@ export function useVoiceRecognition(options: UseVoiceRecognitionOptions = {}) {
       setWhisperAvailable(true);
       return;
     }
-    const clientKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key")?.trim() : null;
-    const headers: Record<string, string> = {};
-    if (clientKey) headers["x-openai-api-key"] = clientKey;
-
-    fetch(apiUrl("/api/transcribe"), { headers })
+    fetch(apiUrl("/api/transcribe"))
       .then((r) => r.json())
       .then((data) => setWhisperAvailable(data.whisperAvailable === true))
       .catch(() => setWhisperAvailable(false));
-
-    const onKeyChange = () => {
-      if (isLocalWhisperAvailable()) {
-        setWhisperAvailable(true);
-        return;
-      }
-      const key = localStorage.getItem("openai_api_key")?.trim();
-      fetch(apiUrl("/api/transcribe"), { headers: key ? { "x-openai-api-key": key } : {} })
-        .then((r) => r.json())
-        .then((data) => setWhisperAvailable(data.whisperAvailable === true))
-        .catch(() => setWhisperAvailable(false));
-    };
-    window.addEventListener("openai-api-key-changed", onKeyChange);
-    return () => window.removeEventListener("openai-api-key-changed", onKeyChange);
   }, [preferWhisper]);
 
   const useWhisper = whisperAvailable === true;
@@ -184,21 +166,17 @@ export function useVoiceRecognition(options: UseVoiceRecognitionOptions = {}) {
             text = await transcribeLocal(blob);
           }
           if (!text) {
-            const clientKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key")?.trim() : null;
-            const headers: Record<string, string> = {};
-            if (clientKey) headers["x-openai-api-key"] = clientKey;
             const formData = new FormData();
             formData.append("file", blob, "recording.webm");
             const res = await fetch(apiUrl("/api/transcribe"), {
               method: "POST",
-              headers: Object.keys(headers).length ? headers : undefined,
               body: formData,
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "Transcription failed");
             text = (data.text || "").trim();
             try {
-              recordAIUsageMinimal("openai", "whisper_transcribe", data?.model);
+              recordAIUsageMinimal("ollama", "whisper_transcribe", data?.model);
             } catch {
               // ignore
             }
@@ -229,7 +207,7 @@ export function useVoiceRecognition(options: UseVoiceRecognitionOptions = {}) {
       return;
     }
     if (preferWhisper && whisperAvailable === false) {
-      setError("Voice transcription unavailable. Enable microphone or add OpenAI API key in Settings > Security.");
+      setError("Voice transcription unavailable. Enable microphone or ensure local transcription runtime is available.");
       return;
     }
     if (useWhisper) {

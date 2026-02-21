@@ -6,12 +6,15 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiFetch } from "@/lib/api/client";
 import { loadAlertSettings, saveAlertSettings } from "@/lib/api/alerts";
-import { loadSocialSettings, saveSocialSettings, type SocialSettings } from "@/lib/social-settings";
 import { loadAIUsageStats } from "@/lib/api/ai-usage";
-import { disconnectX, getXStatus } from "@/lib/api/social";
 import { cn } from "@/lib/utils";
 import { ALL_FEATURES } from "@/lib/ai-orchestrator/registry";
-import { isFeatureEnabled, setFeatureEnabled } from "@/lib/ai-orchestrator/orchestrator";
+import {
+    getFeatureRolloutPercent,
+    isFeatureEnabled,
+    setFeatureEnabled,
+    setFeatureRolloutPercent,
+} from "@/lib/ai-orchestrator/orchestrator";
 import {
     Shield,
     Eye,
@@ -21,8 +24,6 @@ import {
     Loader2,
     CheckCircle2,
     XCircle,
-    ExternalLink,
-    Link2,
     Send,
     BarChart3,
 } from "lucide-react";
@@ -31,10 +32,9 @@ import type { AIProvider } from "@/lib/api/ai";
 
 const ALERT_SETTINGS_SYNC_EVENT = "advanced-alerts-settings-synced";
 const ALERT_SETTINGS_STORAGE_KEY = "portfolio_alert_settings";
-const SOCIAL_SETTINGS_STORAGE_KEY = "social_x_settings";
 const HEALTH_POLL_MS = 30000;
 
-type ProviderTab = "openai" | "gemini" | "ollama";
+type ProviderTab = "ollama";
 type HealthStatus = "unknown" | "checking" | "healthy" | "error";
 
 interface HealthState {
@@ -61,19 +61,26 @@ interface IntegrationSettings {
 interface SecurityTabProps {
     aiProvider: AIProvider;
     setAiProvider: (v: AIProvider) => void;
-    openaiApiKey: string;
-    setOpenaiApiKey: (v: string) => void;
-    geminiApiKey: string;
-    setGeminiApiKey: (v: string) => void;
     ollamaBaseUrl: string;
     setOllamaBaseUrl: (v: string) => void;
     ollamaModel: string;
     setOllamaModel: (v: string) => void;
-    showOpenaiKey: boolean;
-    setShowOpenaiKey: (v: boolean) => void;
-    showGeminiKey: boolean;
-    setShowGeminiKey: (v: boolean) => void;
     notify: (payload: { type: NotificationType; title: string; message: string }) => void;
+}
+
+function normalizeAIText(value: string, fallback: string): string {
+    const raw = (value || "").trim();
+    if (!raw) return fallback;
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+        try {
+            const parsed = JSON.parse(raw) as { _raw?: unknown; value?: unknown };
+            if (typeof parsed._raw === "string" && parsed._raw.trim()) return parsed._raw.trim();
+            if (typeof parsed.value === "string" && parsed.value.trim()) return parsed.value.trim();
+        } catch {
+            // ignore malformed values
+        }
+    }
+    return raw;
 }
 
 function HelpHint({ text }: { text: string }) {
@@ -125,24 +132,13 @@ function HealthBadge({ state }: { state: HealthState }) {
 export function SecurityTab({
     aiProvider,
     setAiProvider,
-    openaiApiKey,
-    setOpenaiApiKey,
-    geminiApiKey,
-    setGeminiApiKey,
     ollamaBaseUrl,
     setOllamaBaseUrl,
     ollamaModel,
     setOllamaModel,
-    showOpenaiKey,
-    setShowOpenaiKey,
-    showGeminiKey,
-    setShowGeminiKey,
     notify,
 }: SecurityTabProps) {
-    const [providerTab, setProviderTab] = useState<ProviderTab>("openai");
     const [providerHealth, setProviderHealth] = useState<Record<ProviderTab, boolean | null>>({
-        openai: null,
-        gemini: null,
         ollama: null,
     });
     const [providerHealthChecking, setProviderHealthChecking] = useState(false);
@@ -152,13 +148,14 @@ export function SecurityTab({
         ALL_FEATURES.forEach((f) => (out[f] = isFeatureEnabled(f)));
         return out;
     });
+    const [aiFeatureRollouts, setAiFeatureRollouts] = useState<Record<string, number>>(() => {
+        const out: Record<string, number> = {};
+        ALL_FEATURES.forEach((f) => (out[f] = getFeatureRolloutPercent(f)));
+        return out;
+    });
 
-    const [socialSettings, setSocialSettings] = useState<SocialSettings>(() => loadSocialSettings());
-    const [xConnected, setXConnected] = useState(false);
-    const [xConnecting, setXConnecting] = useState(false);
     const [showTelegramToken, setShowTelegramToken] = useState(false);
     const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
-    const [copiedEnvSnippet, setCopiedEnvSnippet] = useState(false);
     const [integrationsSavedAt, setIntegrationsSavedAt] = useState<number | null>(null);
     const [testingDiscordDelivery, setTestingDiscordDelivery] = useState(false);
     const [testingTelegramDelivery, setTestingTelegramDelivery] = useState(false);
@@ -177,17 +174,14 @@ export function SecurityTab({
         };
     });
 
-    const [xHealth, setXHealth] = useState<HealthState>({ status: "unknown", message: "Not checked yet." });
     const [discordHealth, setDiscordHealth] = useState<HealthState>({ status: "unknown", message: "Not checked yet." });
     const [telegramHealth, setTelegramHealth] = useState<HealthState>({ status: "unknown", message: "Not checked yet." });
     const [savingIntegrations, setSavingIntegrations] = useState(false);
     const [integrationsSaveMessage, setIntegrationsSaveMessage] = useState("");
 
     useEffect(() => {
-        if (aiProvider === "openai" || aiProvider === "gemini" || aiProvider === "ollama") {
-            setProviderTab(aiProvider);
-        }
-    }, [aiProvider]);
+        if (aiProvider !== "ollama") setAiProvider("ollama");
+    }, [aiProvider, setAiProvider]);
 
     useEffect(() => {
         const syncAlertSettings = () => {
@@ -204,19 +198,14 @@ export function SecurityTab({
             });
         };
 
-        const syncSocialSettings = () => setSocialSettings(loadSocialSettings());
-
         const onStorage = (event: StorageEvent) => {
             if (event.key === ALERT_SETTINGS_STORAGE_KEY) syncAlertSettings();
-            if (event.key === SOCIAL_SETTINGS_STORAGE_KEY) syncSocialSettings();
         };
 
         window.addEventListener(ALERT_SETTINGS_SYNC_EVENT, syncAlertSettings as EventListener);
-        window.addEventListener("social-settings-changed", syncSocialSettings);
         window.addEventListener("storage", onStorage);
         return () => {
             window.removeEventListener(ALERT_SETTINGS_SYNC_EVENT, syncAlertSettings as EventListener);
-            window.removeEventListener("social-settings-changed", syncSocialSettings);
             window.removeEventListener("storage", onStorage);
         };
     }, []);
@@ -225,8 +214,6 @@ export function SecurityTab({
         setProviderHealthChecking(true);
         try {
             const headers: Record<string, string> = { "Content-Type": "application/json" };
-            if (openaiApiKey.trim()) headers["x-openai-api-key"] = openaiApiKey.trim();
-            if (geminiApiKey.trim()) headers["x-gemini-api-key"] = geminiApiKey.trim();
             if (ollamaBaseUrl.trim()) headers["x-ollama-base-url"] = ollamaBaseUrl.trim();
             if (ollamaModel.trim()) headers["x-ollama-model"] = ollamaModel.trim();
 
@@ -239,49 +226,21 @@ export function SecurityTab({
                 .json()
                 .catch(() => ({}));
             if (!res.ok || !Array.isArray(json.providers)) {
-                setProviderHealth({ openai: null, gemini: null, ollama: null });
+                setProviderHealth({ ollama: null });
                 return;
             }
-            const next: Record<ProviderTab, boolean | null> = { openai: null, gemini: null, ollama: null };
+            const next: Record<ProviderTab, boolean | null> = { ollama: null };
             for (const provider of json.providers) {
                 const id = provider.id;
-                if (id === "openai" || id === "gemini" || id === "ollama") {
-                    next[id] = !!provider.available;
-                }
+                if (id === "ollama") next.ollama = !!provider.available;
             }
             setProviderHealth(next);
         } catch {
-            setProviderHealth({ openai: null, gemini: null, ollama: null });
+            setProviderHealth({ ollama: null });
         } finally {
             setProviderHealthChecking(false);
         }
-    }, [openaiApiKey, geminiApiKey, ollamaBaseUrl, ollamaModel]);
-
-    const refreshXHealth = useCallback(async () => {
-        setXHealth({ status: "checking", message: "Checking X connection..." });
-        try {
-            const status = await getXStatus();
-            const connected = !!status.connected;
-            setXConnected(connected);
-            if (!connected) {
-                setXHealth({
-                    status: "error",
-                    message: "X is not connected. Use Connect to authorize your account.",
-                });
-                return;
-            }
-            setXHealth({
-                status: "healthy",
-                message: "X account is connected and token is active.",
-            });
-        } catch (error) {
-            setXConnected(false);
-            setXHealth({
-                status: "error",
-                message: error instanceof Error ? error.message : "Failed to verify X connection.",
-            });
-        }
-    }, []);
+    }, [ollamaBaseUrl, ollamaModel]);
 
     const refreshDiscordHealth = useCallback(async () => {
         if (!integrationSettings.discordEnabled) {
@@ -377,11 +336,10 @@ export function SecurityTab({
     const refreshAllHealth = useCallback(async () => {
         await Promise.all([
             refreshProviderHealth(),
-            refreshXHealth(),
             refreshDiscordHealth(),
             refreshTelegramHealth(),
         ]);
-    }, [refreshProviderHealth, refreshXHealth, refreshDiscordHealth, refreshTelegramHealth]);
+    }, [refreshProviderHealth, refreshDiscordHealth, refreshTelegramHealth]);
 
     useEffect(() => {
         void refreshAllHealth();
@@ -401,9 +359,13 @@ export function SecurityTab({
     useEffect(() => {
         const handler = () => {
             const next: Record<string, boolean> = {};
+            const rolloutNext: Record<string, number> = {};
             ALL_FEATURES.forEach((f) => (next[f] = isFeatureEnabled(f)));
+            ALL_FEATURES.forEach((f) => (rolloutNext[f] = getFeatureRolloutPercent(f)));
             setAiFeatureToggles(next);
+            setAiFeatureRollouts(rolloutNext);
         };
+        handler();
         window.addEventListener("ai-feature-toggles-changed", handler);
         return () => window.removeEventListener("ai-feature-toggles-changed", handler);
     }, []);
@@ -436,27 +398,28 @@ export function SecurityTab({
     };
 
     const saveAiKeys = async () => {
-        if (openaiApiKey.trim()) localStorage.setItem("openai_api_key", openaiApiKey.trim());
-        else localStorage.removeItem("openai_api_key");
+        const normalizedBase = normalizeAIText(ollamaBaseUrl, "http://127.0.0.1:11434");
+        const normalizedModel = normalizeAIText(ollamaModel, "llama3.1:8b");
+        setOllamaBaseUrl(normalizedBase);
+        setOllamaModel(normalizedModel);
 
-        if (geminiApiKey.trim()) localStorage.setItem("gemini_api_key", geminiApiKey.trim());
-        else localStorage.removeItem("gemini_api_key");
+        localStorage.removeItem("openai_api_key");
+        localStorage.removeItem("gemini_api_key");
 
-        if (ollamaBaseUrl.trim()) localStorage.setItem("ollama_base_url", ollamaBaseUrl.trim());
+        if (normalizedBase.trim()) localStorage.setItem("ollama_base_url", normalizedBase.trim());
         else localStorage.removeItem("ollama_base_url");
 
-        if (ollamaModel.trim()) localStorage.setItem("ollama_model", ollamaModel.trim());
+        if (normalizedModel.trim()) localStorage.setItem("ollama_model", normalizedModel.trim());
         else localStorage.removeItem("ollama_model");
 
-        localStorage.setItem("ai_provider", aiProvider);
-        window.dispatchEvent(new Event("openai-api-key-changed"));
-        window.dispatchEvent(new Event("gemini-api-key-changed"));
+        localStorage.setItem("ai_provider", "ollama");
+        setAiProvider("ollama");
         window.dispatchEvent(new Event("ollama-settings-changed"));
         window.dispatchEvent(new Event("ai-provider-changed"));
         notify({
             type: "success",
             title: "AI Settings Saved",
-            message: `Provider set to ${aiProvider.toUpperCase()}. OpenAI/Gemini/Ollama settings updated.`,
+            message: "Ollama local provider settings updated.",
         });
         await refreshProviderHealth();
     };
@@ -490,9 +453,7 @@ export function SecurityTab({
                 telegramChatId: integrationSettings.telegramChatId.trim(),
                 telegramSilent: integrationSettings.telegramSilent,
             });
-            saveSocialSettings(socialSettings);
             window.dispatchEvent(new CustomEvent(ALERT_SETTINGS_SYNC_EVENT));
-            window.dispatchEvent(new Event("social-settings-changed"));
             window.dispatchEvent(new Event("settings-changed"));
             const now = Date.now();
             localStorage.setItem("security_integrations_saved_at", String(now));
@@ -501,9 +462,9 @@ export function SecurityTab({
             notify({
                 type: "success",
                 title: "Integrations Saved",
-                message: "X / Discord / Telegram configuration saved.",
+                message: "Discord / Telegram configuration saved.",
             });
-            await Promise.all([refreshXHealth(), refreshDiscordHealth(), refreshTelegramHealth()]);
+            await Promise.all([refreshDiscordHealth(), refreshTelegramHealth()]);
         } catch (error) {
             setIntegrationsSaveMessage("Save failed");
             notify({
@@ -513,55 +474,6 @@ export function SecurityTab({
             });
         } finally {
             setSavingIntegrations(false);
-        }
-    };
-
-    const connectX = async () => {
-        try {
-            setXConnecting(true);
-            const res = await apiFetch("/api/social/x/auth?json=1", { method: "GET" }, 10000);
-            const body = await res
-                .json()
-                .catch(() => ({} as { url?: string; error?: string }));
-            const url = typeof body.url === "string" ? body.url : "";
-            if (!res.ok || !url) {
-                const serverError = body.error || "Failed to generate auth URL.";
-                notify({
-                    type: "error",
-                    title: "X Connect Failed",
-                    message: `${serverError} Add X_CLIENT_ID, X_CLIENT_SECRET, and X_REDIRECT_URI in /portfolio-tracker/.env then restart api-server.`,
-                });
-                return;
-            }
-            window.open(url, "_blank", "width=540,height=720");
-            notify({
-                type: "info",
-                title: "Complete X Login",
-                message: "After approving OAuth, click Refresh Health to verify connection.",
-            });
-        } finally {
-            setXConnecting(false);
-        }
-    };
-
-    const copyXEnvSnippet = async () => {
-        const snippet = [
-            "# X OAuth (used by /api/social/x/* in api-server)",
-            "X_CLIENT_ID=your_x_client_id",
-            "X_CLIENT_SECRET=your_x_client_secret",
-            "X_REDIRECT_URI=http://127.0.0.1:35821/api/social/x/callback",
-            "X_SUCCESS_REDIRECT=http://localhost:3000/settings?tab=security",
-        ].join("\n");
-        try {
-            await navigator.clipboard.writeText(snippet);
-            setCopiedEnvSnippet(true);
-            window.setTimeout(() => setCopiedEnvSnippet(false), 1400);
-        } catch {
-            notify({
-                type: "error",
-                title: "Copy failed",
-                message: "Could not copy env snippet. Paste values manually in /portfolio-tracker/.env.",
-            });
         }
     };
 
@@ -636,20 +548,13 @@ export function SecurityTab({
         }
     };
 
-    const disconnectXAccount = async () => {
-        await disconnectX();
-        setXConnected(false);
-        setXHealth({ status: "error", message: "X disconnected." });
-        notify({ type: "success", title: "X Disconnected", message: "X integration has been disconnected." });
-    };
-
-    const providerIndicatorClass = (provider: ProviderTab) =>
+    const providerIndicatorClass = () =>
         cn(
             "h-2 w-2 rounded-full",
             providerHealthChecking && "bg-cyan-400/80 animate-pulse",
-            !providerHealthChecking && providerHealth[provider] === true && "bg-emerald-400/80",
-            !providerHealthChecking && providerHealth[provider] === false && "bg-rose-400/80",
-            !providerHealthChecking && providerHealth[provider] === null && "bg-zinc-500/80"
+            !providerHealthChecking && providerHealth.ollama === true && "bg-emerald-400/80",
+            !providerHealthChecking && providerHealth.ollama === false && "bg-rose-400/80",
+            !providerHealthChecking && providerHealth.ollama === null && "bg-zinc-500/80"
         );
 
     const integrationValidationIssues: string[] = [];
@@ -703,155 +608,47 @@ export function SecurityTab({
                     </div>
 
                     <p className="text-xs text-zinc-500">
-                        Configure multi-provider AI routing for chat/copilot features. Use <strong className="text-zinc-300">AUTO</strong> to fallback between OpenAI, Gemini, and Ollama.
+                        Local-only AI mode is enforced. All requests run through Ollama only.
                     </p>
 
                     <div className="space-y-3">
-                        <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 flex items-center gap-2">
-                            Preferred Provider
-                            <HelpHint text="AUTO tries OpenAI first, then Gemini, then Ollama local model if available." />
+                        <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                            Active Provider
                         </label>
-                        <select
-                            value={aiProvider}
-                            onChange={(e) => setAiProvider((e.target.value as AIProvider) || "auto")}
-                            className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
-                        >
-                            <option value="auto">Auto (OpenAI → Gemini → Ollama fallback)</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="gemini">Gemini</option>
-                            <option value="ollama">Ollama</option>
-                        </select>
-                    </div>
-
-                    <div className="space-y-3">
-                        <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Provider Settings</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setProviderTab("openai")}
-                                className={cn(
-                                    "px-3 py-2 rounded-lg border text-xs font-bold tracking-wide transition-colors flex items-center justify-between",
-                                    providerTab === "openai"
-                                        ? "border-cyan-400/35 bg-cyan-500/15 text-cyan-100"
-                                        : "border-white/10 bg-black/30 text-zinc-400 hover:text-zinc-300 hover:bg-white/5"
-                                )}
-                            >
-                                <span>OpenAI</span>
-                                <span className={providerIndicatorClass("openai")} />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setProviderTab("gemini")}
-                                className={cn(
-                                    "px-3 py-2 rounded-lg border text-xs font-bold tracking-wide transition-colors flex items-center justify-between",
-                                    providerTab === "gemini"
-                                        ? "border-cyan-400/35 bg-cyan-500/15 text-cyan-100"
-                                        : "border-white/10 bg-black/30 text-zinc-400 hover:text-zinc-300 hover:bg-white/5"
-                                )}
-                            >
-                                <span>Gemini</span>
-                                <span className={providerIndicatorClass("gemini")} />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setProviderTab("ollama")}
-                                className={cn(
-                                    "px-3 py-2 rounded-lg border text-xs font-bold tracking-wide transition-colors flex items-center justify-between",
-                                    providerTab === "ollama"
-                                        ? "border-cyan-400/35 bg-cyan-500/15 text-cyan-100"
-                                        : "border-white/10 bg-black/30 text-zinc-400 hover:text-zinc-300 hover:bg-white/5"
-                                )}
-                            >
-                                <span>Ollama</span>
-                                <span className={providerIndicatorClass("ollama")} />
-                            </button>
+                        <div className="flex items-center justify-between rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 py-2">
+                            <span className="text-sm font-bold text-cyan-100">Ollama (Local Only)</span>
+                            <span className={providerIndicatorClass()} />
                         </div>
                     </div>
 
-                    {providerTab === "openai" && (
-                        <div className="space-y-2 rounded-lg border border-white/10 bg-black/25 p-3">
+                    <div className="space-y-3 rounded-lg border border-white/10 bg-black/25 p-3">
+                        <div className="space-y-2">
                             <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 flex items-center gap-2">
-                                OpenAI API Key
-                                <HelpHint text="Create a key in platform.openai.com, then paste it here. Use a low-cost model such as gpt-4o-mini for routine signals." />
+                                Ollama Base URL
+                                <HelpHint text="Default local endpoint is http://127.0.0.1:11434. Keep Ollama running in background to pass health checks." />
                             </label>
-                            <div className="flex gap-2">
-                                <div className="flex-1 relative">
-                                    <input
-                                        type={showOpenaiKey ? "text" : "password"}
-                                        placeholder="sk-..."
-                                        className="w-full bg-black/40 border border-white/10 rounded p-3 pr-10 text-white text-sm focus:border-primary/50 outline-none"
-                                        value={openaiApiKey}
-                                        onChange={(e) => setOpenaiApiKey(e.target.value)}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-400 p-1"
-                                    >
-                                        {showOpenaiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                    </button>
-                                </div>
-                            </div>
+                            <input
+                                type="text"
+                                placeholder="http://127.0.0.1:11434"
+                                className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
+                                value={ollamaBaseUrl}
+                                onChange={(e) => setOllamaBaseUrl(e.target.value)}
+                            />
                         </div>
-                    )}
-
-                    {providerTab === "gemini" && (
-                        <div className="space-y-2 rounded-lg border border-white/10 bg-black/25 p-3">
+                        <div className="space-y-2">
                             <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 flex items-center gap-2">
-                                Gemini API Key
-                                <HelpHint text="Generate key in Google AI Studio. Many accounts have starter no-cost quota, but limits can change." />
+                                Ollama Model
+                                <HelpHint text="Recommended local models: llama3.1:8b (balanced), qwen2.5:3b (light), qwen2.5:7b (stronger)." />
                             </label>
-                            <div className="flex gap-2">
-                                <div className="flex-1 relative">
-                                    <input
-                                        type={showGeminiKey ? "text" : "password"}
-                                        placeholder="AIza..."
-                                        className="w-full bg-black/40 border border-white/10 rounded p-3 pr-10 text-white text-sm focus:border-primary/50 outline-none"
-                                        value={geminiApiKey}
-                                        onChange={(e) => setGeminiApiKey(e.target.value)}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowGeminiKey(!showGeminiKey)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-400 p-1"
-                                    >
-                                        {showGeminiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                    </button>
-                                </div>
-                            </div>
+                            <input
+                                type="text"
+                                placeholder="llama3.1:8b"
+                                className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
+                                value={ollamaModel}
+                                onChange={(e) => setOllamaModel(e.target.value)}
+                            />
                         </div>
-                    )}
-
-                    {providerTab === "ollama" && (
-                        <div className="space-y-3 rounded-lg border border-white/10 bg-black/25 p-3">
-                            <div className="space-y-2">
-                                <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 flex items-center gap-2">
-                                    Ollama Base URL
-                                    <HelpHint text="Default local endpoint is http://127.0.0.1:11434. Keep Ollama running in background to pass health checks." />
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="http://127.0.0.1:11434"
-                                    className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
-                                    value={ollamaBaseUrl}
-                                    onChange={(e) => setOllamaBaseUrl(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 flex items-center gap-2">
-                                    Ollama Model
-                                    <HelpHint text="Recommended local models: llama3.1:8b (balanced), qwen2.5:7b (strong reasoning), mistral:7b (fast). Choose based on your RAM/VRAM." />
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="llama3.1:8b"
-                                    className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
-                                    value={ollamaModel}
-                                    onChange={(e) => setOllamaModel(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                    )}
+                    </div>
 
                     <div className="flex flex-wrap gap-2">
                         <button
@@ -864,9 +661,9 @@ export function SecurityTab({
 
                     <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-zinc-300 space-y-2">
                         <div className="font-bold text-cyan-300">Quick Cost + Model Guide</div>
-                        <p>For low-cost cloud inference use OpenAI `gpt-4o-mini` or Gemini Flash variants.</p>
-                        <p>For fully local/no API fees use Ollama with `llama3.1:8b` as default starting point.</p>
-                        <p>Free tiers and limits can change, so monitor provider dashboards before scaling usage.</p>
+                        <p>Fully local mode is enabled: only Ollama is used.</p>
+                        <p>Default model is `llama3.1:8b`. Use `qwen2.5:3b` if you want lower resource usage.</p>
+                        <p>Keep one Ollama daemon running at `http://127.0.0.1:11434`.</p>
                     </div>
 
                     <div className="rounded-lg border border-white/10 bg-black/30 p-3 space-y-3">
@@ -883,18 +680,18 @@ export function SecurityTab({
                                 Reset
                             </button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
-                            {(["openai", "gemini", "ollama"] as const).map((provider) => {
-                                const totals = aiUsageStats.providers[provider];
+                        <div className="grid grid-cols-1 gap-2 text-[11px]">
+                            {(() => {
+                                const totals = aiUsageStats.providers.ollama;
                                 return (
-                                    <div key={provider} className="rounded-lg border border-white/10 bg-black/40 p-2 space-y-1">
-                                        <div className="text-xs font-bold uppercase tracking-wide text-zinc-300">{provider}</div>
+                                    <div className="rounded-lg border border-white/10 bg-black/40 p-2 space-y-1">
+                                        <div className="text-xs font-bold uppercase tracking-wide text-zinc-300">ollama</div>
                                         <div className="text-zinc-400">Calls: <span className="text-white">{totals.count}</span></div>
                                         <div className="text-zinc-400">Tokens: <span className="text-white">{formatTokens(totals.totalTokens)}</span></div>
                                         <div className="text-zinc-500">Last: {totals.lastUsed ? new Date(totals.lastUsed).toLocaleString() : "—"}</div>
                                     </div>
                                 );
-                            })}
+                            })()}
                         </div>
                         <div className="space-y-1">
                             <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Top features</div>
@@ -913,6 +710,55 @@ export function SecurityTab({
                                 )}
                             </div>
                         </div>
+                        <div className="space-y-1">
+                            <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Quality telemetry</div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+                                {(["validated", "repaired", "fallback"] as const).map((status) => {
+                                    const bucket = aiUsageStats.quality.contractStatus[status];
+                                    return (
+                                        <div key={status} className="rounded-lg border border-white/10 bg-black/40 p-2 space-y-1">
+                                            <div className="text-xs font-bold uppercase tracking-wide text-zinc-300">{status}</div>
+                                            <div className="text-zinc-400">Count: <span className="text-white">{bucket.count}</span></div>
+                                            <div className="text-zinc-500">Last: {bucket.lastUsed ? new Date(bucket.lastUsed).toLocaleString() : "—"}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-zinc-400">
+                                Confidence avg: <span className="text-white">{Math.round((aiUsageStats.quality.confidence.avg || 0) * 100)}%</span>
+                                {" · "}
+                                min: <span className="text-white">{Math.round((aiUsageStats.quality.confidence.min || 0) * 100)}%</span>
+                                {" · "}
+                                max: <span className="text-white">{Math.round((aiUsageStats.quality.confidence.max || 0) * 100)}%</span>
+                                {" · "}
+                                samples: <span className="text-white">{aiUsageStats.quality.confidence.samples || 0}</span>
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Feature guardrails</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                                {Object.entries(aiUsageStats.featureQuality || {})
+                                    .sort((a, b) => (b[1]?.blockedCount || 0) - (a[1]?.blockedCount || 0))
+                                    .slice(0, 6)
+                                    .map(([feature, quality]) => {
+                                        const decisions = quality.totalDecisions || 0;
+                                        const blockedRate = decisions > 0 ? (quality.blockedCount / decisions) * 100 : 0;
+                                        return (
+                                            <div key={feature} className="rounded-lg border border-white/10 bg-black/40 p-2 space-y-1">
+                                                <div className="text-xs font-bold uppercase tracking-wide text-zinc-300">{feature}</div>
+                                                <div className="text-zinc-400">Blocked: <span className="text-white">{quality.blockedCount}</span> ({blockedRate.toFixed(0)}%)</div>
+                                                <div className="text-zinc-500">
+                                                    stale {quality.staleBlockedCount} · low conf {quality.lowConfidenceBlockedCount} · evidence {quality.evidenceMissingBlockedCount}
+                                                </div>
+                                                <div className="text-zinc-500">Fallback: {quality.fallbackCount} · Last: {quality.lastUsed ? new Date(quality.lastUsed).toLocaleString() : "—"}</div>
+                                            </div>
+                                        );
+                                    })}
+                                {Object.keys(aiUsageStats.featureQuality || {}).length === 0 && (
+                                    <div className="text-zinc-500">No feature guardrail metrics yet.</div>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     <div className="rounded-lg border border-white/10 bg-black/30 p-3 space-y-3">
@@ -920,15 +766,36 @@ export function SecurityTab({
                         <p className="text-[11px] text-zinc-500">Enable or disable AI insights per feature to control noise and cost.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
                             {ALL_FEATURES.map((feature) => (
-                                <div key={feature} className="flex items-center justify-between rounded-md border border-white/10 bg-black/40 px-2 py-2">
-                                    <span className="text-zinc-300">{feature.replace(/_/g, " ")}</span>
-                                    <Switch
-                                        checked={aiFeatureToggles[feature] !== false}
-                                        onCheckedChange={(v) => {
-                                            setFeatureEnabled(feature, v);
-                                            setAiFeatureToggles((prev) => ({ ...prev, [feature]: v }));
-                                        }}
-                                    />
+                                <div key={feature} className="rounded-md border border-white/10 bg-black/40 px-2 py-2 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-zinc-300">{feature.replace(/_/g, " ")}</span>
+                                        <Switch
+                                            checked={aiFeatureToggles[feature] !== false}
+                                            onCheckedChange={(v) => {
+                                                setFeatureEnabled(feature, v);
+                                                setAiFeatureToggles((prev) => ({ ...prev, [feature]: v }));
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                                            <span>Rollout</span>
+                                            <span className="text-zinc-300">{aiFeatureRollouts[feature] ?? 100}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={100}
+                                            step={5}
+                                            value={aiFeatureRollouts[feature] ?? 100}
+                                            onChange={(e) => {
+                                                const next = Number(e.target.value || 0);
+                                                setFeatureRolloutPercent(feature, next);
+                                                setAiFeatureRollouts((prev) => ({ ...prev, [feature]: next }));
+                                            }}
+                                            className="w-full accent-cyan-400"
+                                        />
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -937,7 +804,7 @@ export function SecurityTab({
 
                 <div className="mt-4 pt-4 border-t border-white/5 space-y-4">
                     <div className="flex items-center justify-between gap-2">
-                        <h4 className="font-bold text-white text-sm">Integrations Hub (X / Discord / Telegram)</h4>
+                        <h4 className="font-bold text-white text-sm">Integrations Hub (Discord / Telegram)</h4>
                         <button
                             type="button"
                             onClick={() => void refreshAllHealth()}
@@ -952,21 +819,8 @@ export function SecurityTab({
                     </p>
 
                     <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="text-xs font-bold uppercase tracking-wide text-cyan-300">Where to add each API</div>
-                            <button
-                                type="button"
-                                onClick={() => void copyXEnvSnippet()}
-                                className="rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-1 text-[10px] font-bold text-cyan-100 hover:bg-cyan-500/20"
-                            >
-                                {copiedEnvSnippet ? "Copied" : "Copy X .env snippet"}
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
-                            <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
-                                <div className="font-bold text-white mb-1">X OAuth</div>
-                                <p className="text-zinc-400">Add in <code className="text-zinc-300">/portfolio-tracker/.env</code>, then restart <code className="text-zinc-300">npm run api-server</code>.</p>
-                            </div>
+                        <div className="text-xs font-bold uppercase tracking-wide text-cyan-300">Where to add each API</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
                             <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
                                 <div className="font-bold text-white mb-1">Discord</div>
                                 <p className="text-zinc-400">Paste webhook URL in the Discord card below, click <span className="text-zinc-300">Check</span>, then <span className="text-zinc-300">Send Test</span>.</p>
@@ -976,70 +830,9 @@ export function SecurityTab({
                                 <p className="text-zinc-400">Paste bot token + chat ID in the Telegram card, then run health and delivery test.</p>
                             </div>
                         </div>
-                        <pre className="overflow-x-auto rounded-md border border-white/10 bg-black/40 p-2 text-[10px] leading-relaxed text-zinc-300">
-{`X_CLIENT_ID=your_x_client_id
-X_CLIENT_SECRET=your_x_client_secret
-X_REDIRECT_URI=http://127.0.0.1:35821/api/social/x/callback
-X_SUCCESS_REDIRECT=http://localhost:3000/settings?tab=security`}
-                        </pre>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-                        <div className="rounded-xl border border-white/10 bg-black/25 p-3 space-y-3">
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    <Link2 className="h-4 w-4 text-cyan-300" />
-                                    <span className="text-sm font-bold text-white">X (Twitter)</span>
-                                </div>
-                                <HealthBadge state={xHealth} />
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                                <div className="text-xs text-zinc-400 flex items-center gap-2">
-                                    Enable Social Feed
-                                    <HelpHint text="When enabled, X posts can enrich AI feed signals in Overview/Markets/Spot/Balances." />
-                                </div>
-                                <Switch
-                                    checked={socialSettings.enabled}
-                                    onCheckedChange={(v) => setSocialSettings((prev) => ({ ...prev, enabled: v }))}
-                                />
-                            </div>
-
-                            <div className="text-xs text-zinc-400">
-                                Status: {xConnected ? <span className="text-emerald-300">Connected</span> : <span className="text-rose-300">Disconnected</span>}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => void connectX()}
-                                    disabled={xConnecting}
-                                    className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2.5 py-1 text-[11px] font-bold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
-                                >
-                                    {xConnecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <ExternalLink className="h-3 w-3" />}
-                                    {xConnected ? "Reconnect" : "Connect"}
-                                </button>
-                                {xConnected && (
-                                    <button
-                                        type="button"
-                                        onClick={() => void disconnectXAccount()}
-                                        className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:bg-rose-500/15"
-                                    >
-                                        Disconnect
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => void refreshXHealth()}
-                                    className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-bold text-zinc-300 hover:bg-white/10"
-                                >
-                                    Check
-                                </button>
-                            </div>
-
-                            <p className="text-[11px] text-zinc-500">{xHealth.message}</p>
-                        </div>
-
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3 space-y-3">
                             <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
@@ -1228,7 +1021,7 @@ X_SUCCESS_REDIRECT=http://localhost:3000/settings?tab=security`}
                 <div className="mt-4 pt-4 border-t border-white/5">
                     <h4 className="font-bold text-white text-sm">Voice Transcription (Whisper)</h4>
                     <p className="text-xs text-zinc-500 mt-1">
-                        Voice transcription uses local Whisper in-browser. It automatically reuses the OpenAI key above as optional server fallback.
+                        Voice transcription uses local Whisper in-browser. It is configured for local-only execution in this setup.
                     </p>
                 </div>
 

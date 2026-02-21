@@ -8,6 +8,7 @@ import {
   INDIAN_STOCKS_API_BASE_KEY,
   CAS_PARSER_API_KEY_STORAGE,
 } from "@/lib/api/indian-markets-config";
+import { AI_RUNTIME_CHANGED_EVENT } from "@/lib/ai-runtime";
 
 export const EXPORT_VERSION = 1;
 
@@ -46,8 +47,11 @@ export const STORAGE_KEYS = {
   settings_hide_spam: "settings_hide_spam",
   demo_mode: "demo_mode",
   ai_provider: "ai_provider",
+  ai_runtime_enabled: "ai_runtime_enabled",
   ollama_base_url: "ollama_base_url",
   ollama_model: "ollama_model",
+  activity_intel_settings: "activity_intel_settings_v1",
+  activity_memory_summary: "activity_movement_memory_v1",
 
   // Alerts
   portfolio_alert_settings: "portfolio_alert_settings",
@@ -195,6 +199,7 @@ export function triggerPostImportRefresh(): void {
   window.dispatchEvent(new Event("gemini-api-key-changed"));
   window.dispatchEvent(new Event("ollama-settings-changed"));
   window.dispatchEvent(new Event("ai-provider-changed"));
+  window.dispatchEvent(new Event(AI_RUNTIME_CHANGED_EVENT));
   window.dispatchEvent(new Event("indian-markets-settings-changed"));
   window.dispatchEvent(new CustomEvent("alerts-feed-settings-changed"));
   window.dispatchEvent(new CustomEvent("sync-playbook-alerts", { detail: { type: "spot" } }));

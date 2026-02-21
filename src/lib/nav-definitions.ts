@@ -23,7 +23,12 @@ import {
     FileText,
     ListOrdered,
     CircleDot,
+    Clock3,
+    GitCompareArrows,
     HelpCircle,
+    Layers3,
+    Shield,
+    Trophy,
 } from 'lucide-react';
 
 export interface NavItemDef {
@@ -36,7 +41,6 @@ export interface NavItemDef {
 export const MAIN_SIDEBAR_ITEMS: NavItemDef[] = [
     { href: '/', title: 'Overview', icon: LayoutDashboard },
     { href: '/watchlist', title: 'Markets', icon: TrendingUp },
-    { href: '/spot', title: 'Spot', icon: PieChart },
     { href: '/balances', title: 'Balances', icon: Wallet },
     { href: '/futures', title: 'Futures', icon: BarChart2 },
     { href: '/wallet-tracker', title: 'Wallet Tracker', icon: Globe },
@@ -59,6 +63,12 @@ export const JOURNAL_SIDEBAR_ITEMS: NavItemDef[] = [
             { href: '/journal/reports/tags', title: 'Tags', icon: Tag },
             { href: '/journal/reports/symbols', title: 'Symbols', icon: PieChart },
             { href: '/journal/reports/pnl-curve', title: 'PnL Curve', icon: TrendingUp },
+            { href: '/journal/reports/risk', title: 'Risk', icon: Shield },
+            { href: '/journal/reports/day-time', title: 'Day & Time', icon: Clock3 },
+            { href: '/journal/reports/playbook', title: 'Playbook', icon: Layers3 },
+            { href: '/journal/reports/win-loss', title: 'Win vs Loss', icon: Trophy },
+            { href: '/journal/reports/compare', title: 'Compare', icon: GitCompareArrows },
+            { href: '/journal/reports/options', title: 'Options', icon: CircleDot },
         ],
     },
     { href: '/journal/analytics', title: 'Analytics', icon: TrendingUp },

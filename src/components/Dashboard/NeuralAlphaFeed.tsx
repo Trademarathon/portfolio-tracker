@@ -133,6 +133,12 @@ interface AlphaSignal {
         confidencePercent?: number;
         source?: string;
         model?: string;
+        aiFeature?: string;
+        aiVerdict?: "allow" | "warn" | "block";
+        aiSeverity?: "info" | "warning" | "critical";
+        aiPolicyReasons?: string[];
+        aiEvidenceSummary?: string;
+        aiFreshUntil?: number;
         // Playbook plan levels
         planType?: 'spot' | 'perp';
         entryZone?: { low: number; high: number };
@@ -214,8 +220,8 @@ const SIGNAL_CONFIGS: Record<SignalType, { icon: React.ElementType; color: strin
 };
 
 const FEED_UPDATE_INTERVAL_MS = 30000;
-const AI_FEED_DISMISSED_IDS_KEY = "ai_feed_dismissed_ids";
-const AI_FEED_LAST_SEEN_KEY = "ai_feed_last_seen_timestamp";
+const _AI_FEED_DISMISSED_IDS_KEY = "ai_feed_dismissed_ids";
+const _AI_FEED_LAST_SEEN_KEY = "ai_feed_last_seen_timestamp";
 const AI_FEED_TP_THRESHOLD_KEY = "ai_feed_tp_threshold_pct";
 const AI_FEED_DCA_THRESHOLD_KEY = "ai_feed_dca_threshold_pct";
 const AI_FEED_COMPOSITE_TRIGGER_KEY = "ai_feed_composite_triggered";
@@ -225,7 +231,7 @@ const JOURNAL_TRADES_KEY = "journal_trades";
 const JOURNAL_ANNOTATIONS_KEY = "trade_journal_annotations";
 const DEFAULT_COMPOSITE_TOLERANCE = 0.0025;
 const UNJOURNALED_DAYS = 14;
-const MAX_DISMISSED_IDS = 200;
+const _MAX_DISMISSED_IDS = 200;
 const DEFAULT_TP_THRESHOLD_PCT = 30;
 const DEFAULT_DCA_THRESHOLD_PCT = 20;
 
@@ -273,6 +279,7 @@ const SignalCard = memo(function SignalCard({
     const config = SIGNAL_CONFIGS[signal.type];
     const Icon = config.icon;
     const [detailsOpen, setDetailsOpen] = useState(false);
+    const [feedbackState, setFeedbackState] = useState<"idle" | "sending" | "helpful" | "wrong" | "unsafe" | "error">("idle");
     const pointerX = useMotionValue(50);
     const pointerY = useMotionValue(50);
     const smoothX = useSpring(pointerX, { stiffness: 220, damping: 26, mass: 0.35 });
@@ -291,6 +298,31 @@ const SignalCard = memo(function SignalCard({
         pointerX.set(50);
         pointerY.set(50);
     }, [pointerX, pointerY]);
+
+    const submitFeedback = useCallback(async (feedback: "helpful" | "wrong" | "unsafe") => {
+        if (feedbackState === "sending") return;
+        setFeedbackState("sending");
+        try {
+            const payload = {
+                signalId: signal.id,
+                feature: signal.data?.aiFeature || "",
+                verdict: signal.data?.aiVerdict || "",
+                severity: signal.data?.aiSeverity || "",
+                feedback,
+                source: "global-ai-feed",
+                timestamp: Date.now(),
+            };
+            const response = await fetch("/api/ai/feedback", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) throw new Error("feedback request failed");
+            setFeedbackState(feedback);
+        } catch {
+            setFeedbackState("error");
+        }
+    }, [feedbackState, signal.id, signal.data?.aiFeature, signal.data?.aiVerdict, signal.data?.aiSeverity]);
 
     return (
         <motion.article
@@ -410,6 +442,70 @@ const SignalCard = memo(function SignalCard({
                     )}>
                         {signal.description}
                     </p>
+
+                    {signal.type === "AI_SUMMARY" && signal.data?.aiVerdict === "block" && (
+                        <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-200">
+                            Why blocked: {(signal.data.aiPolicyReasons || []).map((reason) => reason.replace(/_/g, " ")).join(", ") || "policy guardrail triggered"}
+                        </div>
+                    )}
+
+                    {signal.type === "AI_SUMMARY" && signal.data?.aiEvidenceSummary && signal.data?.aiVerdict !== "block" && (
+                        <div className="mt-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-200">
+                            Evidence: {signal.data.aiEvidenceSummary}
+                        </div>
+                    )}
+
+                    {signal.type === "AI_SUMMARY" && signal.data?.aiFeature && (
+                        <div className="mt-2 flex items-center gap-1.5 text-[10px]">
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    void submitFeedback("helpful");
+                                }}
+                                className={cn(
+                                    "rounded border px-2 py-0.5 transition-colors",
+                                    feedbackState === "helpful"
+                                        ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-200"
+                                        : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+                                )}
+                            >
+                                Helpful
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    void submitFeedback("wrong");
+                                }}
+                                className={cn(
+                                    "rounded border px-2 py-0.5 transition-colors",
+                                    feedbackState === "wrong"
+                                        ? "border-amber-500/40 bg-amber-500/20 text-amber-200"
+                                        : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+                                )}
+                            >
+                                Wrong
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    void submitFeedback("unsafe");
+                                }}
+                                className={cn(
+                                    "rounded border px-2 py-0.5 transition-colors",
+                                    feedbackState === "unsafe"
+                                        ? "border-rose-500/40 bg-rose-500/20 text-rose-200"
+                                        : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+                                )}
+                            >
+                                Unsafe
+                            </button>
+                            {feedbackState === "sending" && <span className="text-zinc-500">Sending...</span>}
+                            {feedbackState === "error" && <span className="text-rose-300">Failed</span>}
+                        </div>
+                    )}
 
                     {signal.type === 'SOCIAL_MENTION' && signal.data?.url && (
                         <div className="mt-2 flex items-center gap-2 text-[10px]">
@@ -1042,7 +1138,7 @@ export const NeuralAlphaFeed = memo(function NeuralAlphaFeed({
     const [tpThresholdPct, setTpThresholdPct] = useState(DEFAULT_TP_THRESHOLD_PCT);
     const [dcaThresholdPct, setDcaThresholdPct] = useState(DEFAULT_DCA_THRESHOLD_PCT);
     const [compositeTolerance, setCompositeTolerance] = useState(DEFAULT_COMPOSITE_TOLERANCE);
-    const screener = useScreenerData({ live: false, enableRestFallback: false });
+    const screener = useScreenerData({ live: false, enableRestFallback: false, fetchMarkets: false });
     const compositeTriggeredRef = useRef<Record<string, number>>({});
     const compositeReactionRef = useRef<Record<string, {
         lastTouchAt?: number;
@@ -2630,7 +2726,7 @@ export const NeuralAlphaFeed = memo(function NeuralAlphaFeed({
         if (allowedTypes?.length === 1 && allowedTypes[0] === "SOCIAL_MENTION") {
             return {
                 title: "No social posts",
-                subtitle: "No recent X posts matched your symbols.",
+                subtitle: "No recent social posts matched your symbols.",
             };
         }
         return {

@@ -131,8 +131,9 @@ export const CHAIN_CONFIGS: Record<ChainType, ChainConfig> = {
         id: 'FTM', name: 'Fantom', symbol: 'FTM', decimals: 18,
         addressFormat: 'evm', ledgerSupport: true, trezorSupport: true,
         chainId: 250,
-        api: { balance: 'https://api.ftmscan.com/api' },
-        rpc: ['https://rpc.ftm.tools', 'https://fantom.llamarpc.com']
+        // Legacy ftmscan endpoints are no longer resolvable; rely on RPC fallback.
+        api: { balance: '' },
+        rpc: ['https://rpcapi.fantom.network', 'https://1rpc.io/ftm']
     },
     CELO: {
         id: 'CELO', name: 'Celo', symbol: 'CELO', decimals: 18,
@@ -391,6 +392,7 @@ async function probeRpc(url: string, chainId?: number): Promise<boolean> {
 
 export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'MATIC' | 'OP' | 'BASE' | 'BSC' | 'AVAX' = 'ETH'): Promise<TokenBalance[]> {
     const balances: TokenBalance[] = [];
+    const nativeSymbol = CHAIN_CONFIGS[chain]?.symbol || 'ETH';
 
     // 1. Fetch Native Balance & Token List via Blockscout (The "Deep" Way)
     // Blockscout 'tokenlist' usually returns all ERC20/721 held by address
@@ -445,13 +447,8 @@ export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'M
             if (nativeData && nativeData.status === '1') {
                 const nativeVal = parseFloat(nativeData.result);
                 if (nativeVal > 0) {
-                    let symbol = 'ETH';
-                    if (chain === 'MATIC') symbol = 'MATIC';
-                    if (chain === 'BSC') symbol = 'BNB';
-                    if (chain === 'AVAX') symbol = 'AVAX';
-
                     balances.push({
-                        symbol,
+                        symbol: nativeSymbol,
                         balance: nativeVal / 1e18
                     });
                 }
@@ -486,12 +483,8 @@ export async function getEvmPortfolio(address: string, chain: 'ETH' | 'ARB' | 'M
     try {
         const nativeBalance = await provider.getBalance(address);
         if (nativeBalance > BigInt(0)) {
-            let symbol = 'ETH';
-            if (chain === 'MATIC') symbol = 'MATIC';
-            if (chain === 'BSC') symbol = 'BNB';
-            if (chain === 'AVAX') symbol = 'AVAX';
             balances.push({
-                symbol: symbol,
+                symbol: nativeSymbol,
                 balance: parseFloat(ethers.formatEther(nativeBalance))
             });
         }

@@ -4,7 +4,9 @@ import { normalizeSymbol } from '../utils/normalization';
 const CEX_FETCH_TIMEOUT_MS = 8000;
 const API_COOLDOWN_MS = 30000;
 const API_SERVER_DOWN_COOLDOWN_MS = 45000;
+const NEXT_ROUTE_FALLBACK_COOLDOWN_MS = 60000;
 const apiUnavailableUntilByKey = new Map<string, number>();
+const preferProxyUntilByKey = new Map<string, number>();
 let apiServerUnavailableUntil = 0;
 const CACHE_TTL_MS = 120000;
 const CACHE_PREFIX = "cex_cache_v2";
@@ -119,89 +121,112 @@ async function fetchCexApi(
     }
     const url = apiUrl(path);
     const canUseNextProxy = typeof window !== 'undefined';
+    const requestBody = { exchangeId, exchange: exchangeId, apiKey, secret, ...(extraBody || {}) };
+    const targetProxyUrl = url.startsWith('http') ? url : `${LOCAL_API_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
 
     const isRetryableStatus = (status: number) => status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
     const isMissingRouteStatus = (status: number) => status === 404 || status === 405;
+    const isGatewayStatus = (status: number) => status === 502 || status === 503 || status === 504;
     const shouldRetryBybit = (status?: number, error?: unknown) => {
         if (exchangeId !== 'bybit') return false;
         if (typeof status === 'number') return isRetryableStatus(status);
         const msg = String((error as Error)?.message || '');
         return /timed out|network|fetch failed|unavailable|ECONN|503|504|429/i.test(msg);
     };
-
-    // In Next.js browser runtime, prefer same-origin API route first.
-    // This avoids direct-browser CORS/network failures against 127.0.0.1.
-    if (canUseNextProxy) {
-        try {
-            const nextRouteResponse = await fetch(path, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exchangeId, exchange: exchangeId, apiKey, secret, ...(extraBody || {}) })
-            });
-            if (nextRouteResponse.ok) return nextRouteResponse;
-            if (shouldRetryBybit(nextRouteResponse.status)) {
-                await new Promise((r) => setTimeout(r, 450));
-                const retry = await fetch(path, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ exchangeId, exchange: exchangeId, apiKey, secret, ...(extraBody || {}) })
-                });
-                if (retry.ok) return retry;
-                if (retry.status >= 500) return retry;
-            }
-            if (nextRouteResponse.status === 502 || nextRouteResponse.status === 503 || nextRouteResponse.status === 504) {
-                apiUnavailableUntilByKey.set(cooldownKey, Date.now() + API_COOLDOWN_MS);
-                markApiServerUnavailable();
-            }
-            // If backend returned structured error, surface it directly.
-            if (nextRouteResponse.status >= 500) return nextRouteResponse;
-        } catch (e) {
-            if (shouldRetryBybit(undefined, e)) {
-                try {
-                    await new Promise((r) => setTimeout(r, 500));
-                    const retry = await fetch(path, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ exchangeId, exchange: exchangeId, apiKey, secret, ...(extraBody || {}) })
-                    });
-                    if (retry.ok) return retry;
-                } catch {
-                    // fall through to proxy path
-                }
-            }
-            apiUnavailableUntilByKey.set(cooldownKey, Date.now() + API_COOLDOWN_MS);
-            markApiServerUnavailable();
-            warnThrottled(`next:${path}`, `[CEX NextRoute] ${path} failed, trying /api/proxy fallback:`, e);
-        }
-
+    const fetchViaProxy = async (): Promise<Response | null> => {
         try {
             const proxyResponse = await fetch('/api/proxy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    url: url.startsWith('http') ? url : `${LOCAL_API_BASE}${url.startsWith('/') ? '' : '/'}${url}`,
+                    url: targetProxyUrl,
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: { exchangeId, exchange: exchangeId, apiKey, secret, ...(extraBody || {}) }
+                    body: requestBody
                 })
             });
-            if (proxyResponse.ok) return proxyResponse;
+            if (proxyResponse.ok) {
+                apiUnavailableUntilByKey.delete(cooldownKey);
+                return proxyResponse;
+            }
             // In static export/runtime without Next API routes, /api/proxy can be 404.
             // Fall through to direct standalone API server fetch in that case.
             if (isMissingRouteStatus(proxyResponse.status)) {
                 warnThrottled(`proxy:${path}`, `[CEX Proxy] /api/proxy unavailable (${proxyResponse.status}), using direct API server for ${path}`);
-            } else {
-                if (proxyResponse.status === 502 || proxyResponse.status === 503 || proxyResponse.status === 504) {
-                    apiUnavailableUntilByKey.set(cooldownKey, Date.now() + API_COOLDOWN_MS);
-                    markApiServerUnavailable();
-                }
-                return proxyResponse;
+                return null;
             }
+            if (isGatewayStatus(proxyResponse.status)) {
+                apiUnavailableUntilByKey.set(cooldownKey, Date.now() + API_COOLDOWN_MS);
+                markApiServerUnavailable();
+            }
+            return proxyResponse;
         } catch (_e) {
             apiUnavailableUntilByKey.set(cooldownKey, Date.now() + API_COOLDOWN_MS);
             markApiServerUnavailable();
             throw new Error(`CEX API unreachable. Start API server: npm run api-server (${exchangeId})`);
         }
+    };
+
+    // In Next.js browser runtime, prefer same-origin API route first.
+    // This avoids direct-browser CORS/network failures against 127.0.0.1.
+    if (canUseNextProxy) {
+        const preferProxyUntil = preferProxyUntilByKey.get(cooldownKey) || 0;
+        let nextRouteFailure: Response | null = null;
+
+        if (Date.now() >= preferProxyUntil) {
+            try {
+                const nextRouteResponse = await fetch(path, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                if (nextRouteResponse.ok) {
+                    preferProxyUntilByKey.delete(cooldownKey);
+                    return nextRouteResponse;
+                }
+                nextRouteFailure = nextRouteResponse;
+                if (shouldRetryBybit(nextRouteResponse.status)) {
+                    await new Promise((r) => setTimeout(r, 450));
+                    const retry = await fetch(path, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                    if (retry.ok) {
+                        preferProxyUntilByKey.delete(cooldownKey);
+                        return retry;
+                    }
+                    nextRouteFailure = retry;
+                }
+                if (nextRouteFailure && isGatewayStatus(nextRouteFailure.status)) {
+                    preferProxyUntilByKey.set(cooldownKey, Date.now() + NEXT_ROUTE_FALLBACK_COOLDOWN_MS);
+                }
+            } catch (e) {
+                if (shouldRetryBybit(undefined, e)) {
+                    try {
+                        await new Promise((r) => setTimeout(r, 500));
+                        const retry = await fetch(path, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestBody)
+                        });
+                        if (retry.ok) {
+                            preferProxyUntilByKey.delete(cooldownKey);
+                            return retry;
+                        }
+                        nextRouteFailure = retry;
+                    } catch {
+                        // fall through to proxy path
+                    }
+                }
+                preferProxyUntilByKey.set(cooldownKey, Date.now() + NEXT_ROUTE_FALLBACK_COOLDOWN_MS);
+                warnThrottled(`next:${path}`, `[CEX NextRoute] ${path} failed, trying /api/proxy fallback:`, e);
+            }
+        }
+
+        const proxyResponse = await fetchViaProxy();
+        if (proxyResponse) return proxyResponse;
+        if (nextRouteFailure) return nextRouteFailure;
     }
 
     // Direct fetch (server-side, or fallback in browser)

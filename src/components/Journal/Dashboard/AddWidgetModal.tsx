@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { X, Search, Check } from "lucide-react";
+import { X, Search, Check, Trash2 } from "lucide-react";
 import { JOURNAL_WIDGET_DEFINITIONS, type JournalWidgetDefinition } from "@/lib/journal-widgets";
-import { WIDGET_MODAL_TITLE, WIDGET_ICON_SIZE_GRID, WIDGET_ICON_SIZE_CARD } from "@/lib/widget-standards";
+import { WIDGET_ICON_SIZE_GRID, WIDGET_ICON_SIZE_CARD } from "@/lib/widget-standards";
 
 export type WidgetType = JournalWidgetDefinition;
 
@@ -58,8 +58,8 @@ export function AddWidgetModal({ isOpen, onClose, selectedWidgets, onAddWidget, 
                             {/* Header */}
                             <div className="flex items-center justify-between p-6 border-b border-zinc-800">
                                 <div>
-                                    <h2 className="text-lg font-bold text-white">{WIDGET_MODAL_TITLE}</h2>
-                                    <p className="text-sm text-zinc-500 mt-1">Select widgets to add to your dashboard</p>
+                                    <h2 className="text-2xl font-black text-white">Add new widgets</h2>
+                                    <p className="text-sm text-zinc-500 mt-1">Select metric widgets you want to allocate on your dashboard</p>
                                 </div>
                                 <button
                                     onClick={onClose}
@@ -78,7 +78,7 @@ export function AddWidgetModal({ isOpen, onClose, selectedWidgets, onAddWidget, 
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                                         <input
                                             type="text"
-                                            placeholder="Search widgets..."
+                                            placeholder="Type to search widgets..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                             className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
@@ -149,7 +149,7 @@ export function AddWidgetModal({ isOpen, onClose, selectedWidgets, onAddWidget, 
 
                                 {/* Selected Widgets */}
                                 <div className="w-64 p-6 bg-zinc-800/30">
-                                    <h3 className="text-sm font-bold text-white mb-4">Selected Widgets</h3>
+                                    <h3 className="text-sm font-bold text-white mb-4">{selectedWidgets.length} Selected</h3>
                                     {selectedWidgets.length > 0 ? (
                                         <div className="space-y-2">
                                             {selectedWidgets.map(widgetId => {
@@ -168,7 +168,7 @@ export function AddWidgetModal({ isOpen, onClose, selectedWidgets, onAddWidget, 
                                                             onClick={() => onRemoveWidget(widgetId)}
                                                             className="text-zinc-500 hover:text-rose-400 transition-colors"
                                                         >
-                                                            <X className="w-3.5 h-3.5" />
+                                                            <Trash2 className="w-3.5 h-3.5" />
                                                         </button>
                                                     </div>
                                                 );
@@ -189,7 +189,7 @@ export function AddWidgetModal({ isOpen, onClose, selectedWidgets, onAddWidget, 
                                     onClick={onClose}
                                     className="px-6 py-2.5 rounded-xl bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-colors"
                                 >
-                                    Done
+                                    Add widget
                                 </button>
                             </div>
                         </div>

@@ -11,6 +11,17 @@ const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 const API_DOWN_COOLDOWN_MS = 20_000;
 let apiUnavailableUntil = 0;
 
+function sanitizeProxyErrorDetails(raw: unknown): string {
+    const text = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!text) return 'Unknown error';
+    if (/<!doctype html|<html|<head|<body|<script/i.test(text)) {
+        return 'Service unavailable (invalid upstream response).';
+    }
+    const maxLen = 220;
+    if (text.length > maxLen) return `${text.slice(0, maxLen - 3)}...`;
+    return text;
+}
+
 // Dynamic CEX Proxy for api-server to handle CORS and rewrites reliably
 // This route catches all POST requests to /api/cex/* and forwards them to the standalone API server
 export async function POST(
@@ -53,11 +64,12 @@ export async function POST(
         if (!response.ok) {
             const errorText = await response.text();
             console.error(`[CEX Proxy] Backend Error ${response.status}: ${errorText}`);
+            const safeErrorText = sanitizeProxyErrorDetails(errorText);
             if (response.status === 502 || response.status === 503 || response.status === 504) {
                 apiUnavailableUntil = Date.now() + API_DOWN_COOLDOWN_MS;
             }
             return NextResponse.json(
-                { error: `API Server Error (${response.status})`, details: errorText },
+                { error: `API Server Error (${response.status})`, details: safeErrorText },
                 { status: response.status }
             );
         }
@@ -73,7 +85,7 @@ export async function POST(
     } catch (e: any) {
         console.error(`[CEX Proxy] Internal Error proxying to ${targetUrl}:`, e);
         // Include specific message to detect connection refused (server down)
-        const message = String(e?.message || "");
+        const message = sanitizeProxyErrorDetails(e?.message || '');
         const isConnRefused =
             e?.cause?.code === "ECONNREFUSED" ||
             message.includes("ECONNREFUSED") ||

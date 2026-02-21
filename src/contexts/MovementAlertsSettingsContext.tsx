@@ -14,7 +14,15 @@ function mergeSettings(raw: unknown): MovementAlertsSettings {
   if (!raw || typeof raw !== "object") return DEFAULT_MOVEMENT_ALERTS_SETTINGS;
   try {
     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return { ...DEFAULT_MOVEMENT_ALERTS_SETTINGS, ...parsed } as MovementAlertsSettings;
+    const next = parsed as Partial<MovementAlertsSettings> & { types?: Partial<MovementAlertsSettings["types"]> };
+    return {
+      ...DEFAULT_MOVEMENT_ALERTS_SETTINGS,
+      ...next,
+      types: {
+        ...DEFAULT_MOVEMENT_ALERTS_SETTINGS.types,
+        ...(next.types || {}),
+      },
+    };
   } catch {
     return DEFAULT_MOVEMENT_ALERTS_SETTINGS;
   }
@@ -78,7 +86,14 @@ export function MovementAlertsSettingsProvider({ children }: { children: React.R
   const saveSettings = useCallback(
     (partial: Partial<MovementAlertsSettings>) => {
       setSettings((prev) => {
-        const next = { ...prev, ...partial };
+        const next = {
+          ...prev,
+          ...partial,
+          types: {
+            ...prev.types,
+            ...(partial.types || {}),
+          },
+        };
         const raw = JSON.stringify(next);
         try {
           localStorage.setItem(MOVEMENT_ALERTS_SETTINGS_KEY, raw);
@@ -125,7 +140,15 @@ export function useMovementAlertsSettings(): MovementAlertsSettingsContextValue 
   return {
     settings: localFallback,
     saveSettings: (partial) => {
-      const next = { ...getLocalSettings(), ...partial };
+      const current = getLocalSettings();
+      const next = {
+        ...current,
+        ...partial,
+        types: {
+          ...current.types,
+          ...(partial.types || {}),
+        },
+      };
       try {
         localStorage.setItem(MOVEMENT_ALERTS_SETTINGS_KEY, JSON.stringify(next));
       } catch {}

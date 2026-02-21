@@ -21,6 +21,8 @@ import { useSupabaseRealtimeSyncUpdate } from '@/hooks/useSupabaseRealtime';
 import { PLAYBOOKS_KEY, SPOT_PLANS_KEY, PERP_PLANS_KEY, SESSION_STORAGE_KEY } from '@/lib/api/session';
 import { evaluatePlanRules } from '@/lib/playbook/rule-engine';
 import { enrichJournalTrades, normalizeJournalTrade, areJournalTradesEquivalent } from '@/lib/journal/trade-enrichment';
+import { getHyperliquidSpotMeta, resolveHyperliquidSymbol } from '@/lib/api/hyperliquid';
+import { getRealizedRMultiple, getTradeEntryPrice, getTradeExitPrice, getTradePositionSize } from '@/lib/journal/report-metrics';
 
 // Types
 export interface DateRange {
@@ -41,6 +43,23 @@ export interface JournalFilters {
     maxPnl: number | null;
     minHoldTime: number | null;
     maxHoldTime: number | null;
+    reviewStatus?: 'all' | 'reviewed' | 'unreviewed';
+    playbookIds?: string[];
+    connectionIds?: string[];
+    minEntryPrice?: number | null;
+    maxEntryPrice?: number | null;
+    minExitPrice?: number | null;
+    maxExitPrice?: number | null;
+    minRMultiple?: number | null;
+    maxRMultiple?: number | null;
+    minPositionSize?: number | null;
+    maxPositionSize?: number | null;
+    minVolume?: number | null;
+    maxVolume?: number | null;
+    includeSymbols?: string[];
+    excludeSymbols?: string[];
+    includeTags?: StrategyTagId[];
+    excludeTags?: StrategyTagId[];
 }
 
 export interface JournalPreferences {
@@ -64,6 +83,9 @@ export interface JournalTrade extends Transaction {
     fees?: number;
     funding?: number;
     isOpen?: boolean;
+    rawSymbol?: string;
+    info?: Record<string, unknown>;
+    cost?: number;
 }
 
 export interface ExchangeSyncDiagnostic {
@@ -159,6 +181,23 @@ const defaultFilters: JournalFilters = {
     maxPnl: null,
     minHoldTime: null,
     maxHoldTime: null,
+    reviewStatus: 'all',
+    playbookIds: [],
+    connectionIds: [],
+    minEntryPrice: null,
+    maxEntryPrice: null,
+    minExitPrice: null,
+    maxExitPrice: null,
+    minRMultiple: null,
+    maxRMultiple: null,
+    minPositionSize: null,
+    maxPositionSize: null,
+    minVolume: null,
+    maxVolume: null,
+    includeSymbols: [],
+    excludeSymbols: [],
+    includeTags: [],
+    excludeTags: [],
 };
 
 const defaultPreferences: JournalPreferences = {
@@ -173,10 +212,22 @@ const defaultPreferences: JournalPreferences = {
 const JournalContext = createContext<JournalContextType | null>(null);
 
 // Sync interval constants
-const TRADE_SYNC_INTERVAL = 5000; // 5 seconds for real-time trade updates
+const TRADE_SYNC_INTERVAL = 15000; // 15 seconds for real-time trade updates
 const API_RETRY_COOLDOWN_MS = 30000;
 const JOURNAL_SYNC_TYPES = new Set(['binance', 'bybit', 'hyperliquid']);
 const NON_EXCHANGE_CONNECTION_TYPES = new Set(['wallet', 'evm', 'solana', 'zerion', 'aptos', 'ton', 'manual']);
+const REALTIME_SYNC_OPTIONS = {
+    mode: 'realtime' as const,
+    bybitDaysBack: 7,
+    bybitSymbolsLimit: 20,
+    bybitPageLimitPerWindow: 3,
+};
+const MANUAL_SYNC_OPTIONS = {
+    mode: 'manual' as const,
+    bybitDaysBack: 30,
+    bybitSymbolsLimit: 60,
+    bybitPageLimitPerWindow: 10,
+};
 
 type RuntimeConnection = {
     type?: string;
@@ -188,6 +239,84 @@ type RuntimeConnection = {
 
 function normalizeExchange(value: unknown): string {
     return String(value || '').toLowerCase().trim();
+}
+
+function extractMessageFromPayload(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object') return undefined;
+    const obj = payload as Record<string, any>;
+    const candidates: unknown[] = [
+        obj.error,
+        obj.message,
+        obj.details,
+        obj.hint,
+        obj?.diagnostics?.message,
+        Array.isArray(obj?.diagnostics?.errors) && obj.diagnostics.errors.length > 0
+            ? String(obj.diagnostics.errors[0])
+            : undefined,
+    ];
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    }
+    return undefined;
+}
+
+function sanitizeDiagnosticMessage(raw: unknown): string | undefined {
+    if (raw === null || raw === undefined) return undefined;
+    let text = String(raw).trim();
+    if (!text) return undefined;
+
+    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+        try {
+            const parsed = JSON.parse(text);
+            const extracted = extractMessageFromPayload(parsed);
+            if (extracted) text = extracted;
+        } catch {
+            // Keep original text if JSON parse fails.
+        }
+    }
+
+    text = text.replace(/\s+/g, ' ').trim();
+    if (!text) return undefined;
+
+    if (/<!doctype html|<html|<head|<body|<script/i.test(text)) {
+        return 'Service unavailable (received HTML response).';
+    }
+
+    const maxLen = 220;
+    if (text.length > maxLen) return `${text.slice(0, maxLen - 3)}...`;
+    return text;
+}
+
+function extractDiagnosticMessage(rawDiag: unknown): string | undefined {
+    if (!rawDiag || typeof rawDiag !== 'object') return undefined;
+    const diag = rawDiag as Record<string, unknown>;
+    const rawMessage =
+        typeof diag.message === 'string'
+            ? diag.message
+            : Array.isArray(diag.errors) && diag.errors.length > 0
+                ? String(diag.errors[0])
+                : undefined;
+    return sanitizeDiagnosticMessage(rawMessage);
+}
+
+async function readResponseErrorMessage(res: Response): Promise<string> {
+    const fallback = `HTTP ${res.status}`;
+    const contentType = res.headers.get('content-type') || '';
+    try {
+        if (contentType.includes('application/json')) {
+            const payload = await res.json();
+            return sanitizeDiagnosticMessage(extractMessageFromPayload(payload) || fallback) || fallback;
+        }
+        const text = await res.text();
+        return sanitizeDiagnosticMessage(text) || fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function isHyperliquidIndexSymbol(value: unknown): boolean {
+    const s = String(value || '').trim();
+    return /^@?\d+$/.test(s);
 }
 
 function normalizeAndEnrichTrades(rawTrades: unknown[]): JournalTrade[] {
@@ -240,6 +369,17 @@ function getJournalConnectionConfig(connections: RuntimeConnection[]) {
     };
 }
 
+function readRuntimeConnectionsFromStorage(): RuntimeConnection[] {
+    if (typeof window === 'undefined') return [];
+    try {
+        const raw = localStorage.getItem('portfolio_connections');
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
 async function fetchFallbackTrades(
     connections: RuntimeConnection[],
     skipExchanges: Set<string> = new Set<string>()
@@ -265,11 +405,11 @@ async function fetchFallbackTrades(
                     }),
                 });
                 if (!res.ok) {
-                    const rawError = await res.text().catch(() => '');
+                    const rawError = await readResponseErrorMessage(res);
                     diagnostics[exchange] = {
                         status: 'error',
                         source: 'cex-trades',
-                        message: rawError || `HTTP ${res.status}`,
+                        message: sanitizeDiagnosticMessage(rawError) || `HTTP ${res.status}`,
                         trades: 0,
                         lastSyncAt: Date.now(),
                     };
@@ -282,9 +422,11 @@ async function fetchFallbackTrades(
                 diagnostics[exchange] = {
                     status: list.length > 0 ? 'ok' : 'empty',
                     source: 'cex-trades',
-                    message: Array.isArray(json?.diagnostics?.errors) && json.diagnostics.errors.length > 0
-                        ? String(json.diagnostics.errors[0])
-                        : undefined,
+                    message: sanitizeDiagnosticMessage(
+                        Array.isArray(json?.diagnostics?.errors) && json.diagnostics.errors.length > 0
+                            ? String(json.diagnostics.errors[0])
+                            : undefined
+                    ),
                     trades: list.length,
                     lastSyncAt: Date.now(),
                 };
@@ -294,7 +436,7 @@ async function fetchFallbackTrades(
                 diagnostics[exchange] = {
                     status: 'error',
                     source: 'cex-trades',
-                    message: e instanceof Error ? e.message : String(e),
+                    message: sanitizeDiagnosticMessage(e instanceof Error ? e.message : String(e)),
                     trades: 0,
                     lastSyncAt: Date.now(),
                 };
@@ -315,7 +457,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     const { user, cloudSyncEnabled } = useSupabaseAuth();
     const [trades, setTrades] = useState<JournalTrade[]>([]);
     const [annotations, setAnnotations] = useState<Record<string, TradeAnnotation>>({});
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
 
@@ -349,11 +491,40 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     const apiUnavailableUntilRef = useRef(0);
     const apiUnavailableNotifiedRef = useRef(false);
 
-    // Load from cloud or localStorage on mount / when auth changes
+    // Cache-first journal bootstrap: render local snapshot immediately, then hydrate from cloud.
     useEffect(() => {
         if (typeof window === 'undefined') return;
         let cancelled = false;
-        (async () => {
+
+        const applyLocalSnapshot = () => {
+            const savedTrades = localStorage.getItem(JOURNAL_TRADES_KEY);
+            const savedAnnotations = localStorage.getItem(JOURNAL_ANNOTATIONS_KEY);
+            const savedPrefs = localStorage.getItem(JOURNAL_PREFERENCES_KEY);
+            const savedPermanentFilters = localStorage.getItem(JOURNAL_PERMANENT_FILTERS_KEY);
+
+            if (savedTrades) {
+                try {
+                    const parsed = JSON.parse(savedTrades);
+                    setTrades(normalizeAndEnrichTrades(Array.isArray(parsed) ? parsed : []));
+                } catch { }
+            }
+            if (savedAnnotations) {
+                try { setAnnotations(JSON.parse(savedAnnotations)); } catch { }
+            }
+            if (savedPrefs) {
+                try { setPreferencesState({ ...defaultPreferences, ...JSON.parse(savedPrefs) }); } catch { }
+            }
+            if (savedPermanentFilters) {
+                try { setPermanentFilters({ ...defaultFilters, ...JSON.parse(savedPermanentFilters) }); } catch { }
+            }
+
+            setPlaybooks(getPlaybooks());
+            setSpotPlans(getSpotPlans());
+            setPerpPlans(getPerpPlans());
+            setPlaybookAlerts(loadPlaybookAlerts());
+        };
+
+        const hydrateFromCloud = async () => {
             try {
                 const [savedTrades, savedAnnotations, savedPrefs, savedPermanentFilters] = await Promise.all([
                     getValueWithCloud(JOURNAL_TRADES_KEY, user?.id ?? null, cloudSyncEnabled),
@@ -362,11 +533,11 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                     getValueWithCloud(JOURNAL_PERMANENT_FILTERS_KEY, user?.id ?? null, cloudSyncEnabled),
                 ]);
                 if (cancelled) return;
+
                 if (savedTrades) {
                     try {
                         const parsed = JSON.parse(savedTrades);
-                        const normalized = normalizeAndEnrichTrades(Array.isArray(parsed) ? parsed : []);
-                        setTrades(normalized);
+                        setTrades(normalizeAndEnrichTrades(Array.isArray(parsed) ? parsed : []));
                     } catch { }
                 }
                 if (savedAnnotations) {
@@ -378,9 +549,13 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                 if (savedPermanentFilters) {
                     try { setPermanentFilters({ ...defaultFilters, ...JSON.parse(savedPermanentFilters) }); } catch { }
                 }
+
                 if (user?.id && cloudSyncEnabled) {
                     const [playbooksRaw, spotRaw, perpRaw, sessionsRaw] = await Promise.all([
-                        getValue(PLAYBOOKS_KEY), getValue(SPOT_PLANS_KEY), getValue(PERP_PLANS_KEY), getValue(SESSION_STORAGE_KEY),
+                        getValue(PLAYBOOKS_KEY),
+                        getValue(SPOT_PLANS_KEY),
+                        getValue(PERP_PLANS_KEY),
+                        getValue(SESSION_STORAGE_KEY),
                     ]);
                     if (cancelled) return;
                     if (playbooksRaw) try { localStorage.setItem(PLAYBOOKS_KEY, playbooksRaw); } catch { }
@@ -388,16 +563,23 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                     if (perpRaw) try { localStorage.setItem(PERP_PLANS_KEY, perpRaw); } catch { }
                     if (sessionsRaw) try { localStorage.setItem(SESSION_STORAGE_KEY, sessionsRaw); } catch { }
                 }
+
                 setPlaybooks(getPlaybooks());
                 setSpotPlans(getSpotPlans());
                 setPerpPlans(getPerpPlans());
                 setPlaybookAlerts(loadPlaybookAlerts());
             } catch (e) {
-                console.error('Failed to load journal data:', e);
+                console.error('Failed to hydrate journal data:', e);
             }
-            if (!cancelled) setIsLoading(false);
-        })();
-        return () => { cancelled = true; };
+        };
+
+        applyLocalSnapshot();
+        setIsLoading(false);
+        void hydrateFromCloud();
+
+        return () => {
+            cancelled = true;
+        };
     }, [user?.id, cloudSyncEnabled]);
 
     const handleRealtimeSyncUpdate = useCallback(
@@ -483,14 +665,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             if (isSyncingRef.current) return;
             if (Date.now() < apiUnavailableUntilRef.current) return;
 
-            // Load connections from localStorage (from Settings page)
-            const savedConnections = localStorage.getItem('portfolio_connections');
-            let connections: RuntimeConnection[] = [];
-            try {
-                connections = savedConnections ? JSON.parse(savedConnections) : [];
-            } catch {
-                connections = [];
-            }
+            const connections = readRuntimeConnectionsFromStorage();
 
             const { keys, fallbackCexConnections, configuredExchanges } = getJournalConnectionConfig(connections);
 
@@ -522,7 +697,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                         const res = await fetch(apiUrl('/api/journal/sync'), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ keys }),
+                            body: JSON.stringify({ keys, options: REALTIME_SYNC_OPTIONS }),
                             signal: ctrl.signal,
                         }).finally(() => clearTimeout(timeoutId));
 
@@ -563,12 +738,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                                     exchangeDiagnostics[exchange] = {
                                         status: normalizedStatus === 'error' ? 'error' : normalizedStatus === 'ok' ? 'ok' : 'empty',
                                         source: 'journal-sync',
-                                        message:
-                                            typeof rawDiag?.message === 'string'
-                                                ? rawDiag.message
-                                                : Array.isArray(rawDiag?.errors) && rawDiag.errors.length > 0
-                                                    ? String(rawDiag.errors[0])
-                                                    : undefined,
+                                        message: extractDiagnosticMessage(rawDiag),
                                         trades: Number(rawDiag?.trades || tradeCounts[exchange] || 0),
                                         lastSyncAt: syncStartedAt,
                                     };
@@ -587,12 +757,12 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                                 }
                             });
                         } else {
-                            const rawError = await res.text().catch(() => '');
+                            const rawError = await readResponseErrorMessage(res);
                             requestedJournalExchanges.forEach((exchange) => {
                                 exchangeDiagnostics[exchange] = {
                                     status: 'error',
                                     source: 'journal-sync',
-                                    message: rawError || `HTTP ${res.status}`,
+                                    message: sanitizeDiagnosticMessage(rawError) || `HTTP ${res.status}`,
                                     trades: 0,
                                     lastSyncAt: syncStartedAt,
                                 };
@@ -600,7 +770,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                             apiUnavailableUntilRef.current = Date.now() + API_RETRY_COOLDOWN_MS;
                         }
                     } catch (syncError) {
-                        const message = syncError instanceof Error ? syncError.message : String(syncError);
+                        const message = sanitizeDiagnosticMessage(syncError instanceof Error ? syncError.message : String(syncError));
                         requestedJournalExchanges.forEach((exchange) => {
                             exchangeDiagnostics[exchange] = {
                                 status: 'error',
@@ -616,7 +786,9 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
                 const fallbackConnections = fallbackCexConnections.filter((conn) => {
                     const exchange = normalizeExchange(conn.type);
-                    return !(JOURNAL_SYNC_TYPES.has(exchange) && journalSyncedExchanges.has(exchange));
+                    if (!exchange) return false;
+                    if (JOURNAL_SYNC_TYPES.has(exchange) && requestedJournalExchanges.includes(exchange)) return false;
+                    return true;
                 });
 
                 if (fallbackConnections.length > 0) {
@@ -682,13 +854,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
         const handleNewTrade = (event: CustomEvent) => {
             const newTrade = event.detail as JournalTrade;
-            setTrades(prev => {
-                const exists = prev.find(t => t.id === newTrade.id);
-                if (exists) {
-                    return prev.map(t => t.id === newTrade.id ? newTrade : t);
-                }
-                return [newTrade, ...prev].sort((a, b) => b.timestamp - a.timestamp);
-            });
+            setTrades((prev) => mergeJournalTrades(prev, [newTrade]));
             setLastSyncTime(Date.now());
 
             // Dispatch event for notifications
@@ -697,7 +863,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
         const handleTradeUpdate = (event: CustomEvent) => {
             const updatedTrade = event.detail as JournalTrade;
-            setTrades(prev => prev.map(t => t.id === updatedTrade.id ? updatedTrade : t));
+            setTrades((prev) => mergeJournalTrades(prev, [updatedTrade]));
         };
 
         window.addEventListener('journal-new-trade', handleNewTrade as EventListener);
@@ -708,6 +874,52 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             window.removeEventListener('journal-trade-update', handleTradeUpdate as EventListener);
         };
     }, []);
+
+    // Resolve Hyperliquid index aliases (e.g. @142) into readable symbols when metadata is available.
+    useEffect(() => {
+        const hasUnresolvedHyperliquidSymbols = trades.some((trade) => {
+            const exchange = normalizeExchange(trade.exchange);
+            if (exchange !== 'hyperliquid') return false;
+            return isHyperliquidIndexSymbol(trade.symbol) || isHyperliquidIndexSymbol(trade.rawSymbol);
+        });
+
+        if (!hasUnresolvedHyperliquidSymbols) return;
+
+        let cancelled = false;
+        (async () => {
+            const spotMeta = await getHyperliquidSpotMeta();
+            if (cancelled || !spotMeta) return;
+
+            setTrades((prev) => {
+                let changed = false;
+                const next = prev.map((trade) => {
+                    const exchange = normalizeExchange(trade.exchange);
+                    if (exchange !== 'hyperliquid') return trade;
+
+                    const rawCandidate = String(trade.rawSymbol || trade.symbol || '').trim();
+                    if (!isHyperliquidIndexSymbol(rawCandidate) && !isHyperliquidIndexSymbol(trade.symbol)) {
+                        return trade;
+                    }
+
+                    const resolved = resolveHyperliquidSymbol(rawCandidate || String(trade.symbol || ''), spotMeta);
+                    if (!resolved || isHyperliquidIndexSymbol(resolved)) return trade;
+
+                    changed = true;
+                    return {
+                        ...trade,
+                        symbol: resolved,
+                        rawSymbol: rawCandidate || trade.rawSymbol || trade.symbol,
+                    };
+                });
+
+                return changed ? normalizeAndEnrichTrades(next) : prev;
+            });
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [trades]);
 
     // Persist trades
     useEffect(() => {
@@ -746,17 +958,9 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const syncTrades = useCallback(async () => {
-        setIsLoading(true);
         setIsSyncing(true);
         try {
-            // Load connections from localStorage (from Settings page)
-            const savedConnections = localStorage.getItem('portfolio_connections');
-            let connections: RuntimeConnection[] = [];
-            try {
-                connections = savedConnections ? JSON.parse(savedConnections) : [];
-            } catch {
-                connections = [];
-            }
+            const connections = readRuntimeConnectionsFromStorage();
 
             const { keys, fallbackCexConnections, configuredExchanges } = getJournalConnectionConfig(connections);
 
@@ -768,7 +972,6 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             // Only sync if we have at least one connected exchange with valid credentials/wallet.
             if (Object.keys(keys).length === 0 && fallbackCexConnections.length === 0) {
                 console.log('[Journal] No connected exchanges found');
-                setIsLoading(false);
                 setIsSyncing(false);
                 return;
             }
@@ -787,7 +990,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                 const res = await fetch(apiUrl('/api/journal/sync'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keys }),
+                    body: JSON.stringify({ keys, options: MANUAL_SYNC_OPTIONS }),
                 });
 
                 if (res.ok) {
@@ -825,12 +1028,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                             exchangeDiagnostics[exchange] = {
                                 status: normalizedStatus === 'error' ? 'error' : normalizedStatus === 'ok' ? 'ok' : 'empty',
                                 source: 'journal-sync',
-                                message:
-                                    typeof rawDiag?.message === 'string'
-                                        ? rawDiag.message
-                                        : Array.isArray(rawDiag?.errors) && rawDiag.errors.length > 0
-                                            ? String(rawDiag.errors[0])
-                                            : undefined,
+                                message: extractDiagnosticMessage(rawDiag),
                                 trades: Number(rawDiag?.trades || tradeCounts[exchange] || 0),
                                 lastSyncAt: syncStartedAt,
                             };
@@ -849,12 +1047,12 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                         }
                     });
                 } else {
-                    const rawError = await res.text().catch(() => '');
+                    const rawError = await readResponseErrorMessage(res);
                     requestedJournalExchanges.forEach((exchange) => {
                         exchangeDiagnostics[exchange] = {
                             status: 'error',
                             source: 'journal-sync',
-                            message: rawError || `HTTP ${res.status}`,
+                            message: sanitizeDiagnosticMessage(rawError) || `HTTP ${res.status}`,
                             trades: 0,
                             lastSyncAt: syncStartedAt,
                         };
@@ -864,7 +1062,9 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
             const fallbackConnections = fallbackCexConnections.filter((conn) => {
                 const exchange = normalizeExchange(conn.type);
-                return !(JOURNAL_SYNC_TYPES.has(exchange) && journalSyncedExchanges.has(exchange));
+                if (!exchange) return false;
+                if (JOURNAL_SYNC_TYPES.has(exchange) && requestedJournalExchanges.includes(exchange)) return false;
+                return true;
             });
 
             if (fallbackConnections.length > 0) {
@@ -898,7 +1098,6 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                 window.dispatchEvent(new CustomEvent('app-notify', { detail: { type: 'error', title: 'Journal sync failed', message: 'Could not load trades. Check API server and retry.', duration: 5000 } }));
             }
         }
-        setIsLoading(false);
         setIsSyncing(false);
     }, []);
 
@@ -1092,9 +1291,19 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             result = result.filter(t => t.side === 'sell' || (t.side as string) === 'short');
         }
 
-        // Symbols filter
-        if (activeFilters.symbols.length > 0) {
-            result = result.filter(t => activeFilters.symbols.includes(t.symbol));
+        const normalizeSymbolKey = (value: unknown) => String(value || '').trim().toUpperCase();
+        const includeSymbols = new Set(
+            [...(activeFilters.symbols || []), ...(activeFilters.includeSymbols || [])]
+                .map(normalizeSymbolKey)
+                .filter(Boolean)
+        );
+        const excludeSymbols = new Set((activeFilters.excludeSymbols || []).map(normalizeSymbolKey).filter(Boolean));
+
+        if (includeSymbols.size > 0) {
+            result = result.filter(t => includeSymbols.has(normalizeSymbolKey(t.symbol)));
+        }
+        if (excludeSymbols.size > 0) {
+            result = result.filter(t => !excludeSymbols.has(normalizeSymbolKey(t.symbol)));
         }
 
         // Exchange filter
@@ -1103,11 +1312,48 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             result = result.filter(t => normalizeExchange(t.exchange) === normalizedFilterExchange);
         }
 
+        const includeTags = new Set<StrategyTagId>([
+            ...(activeFilters.tags || []),
+            ...(activeFilters.includeTags || []),
+        ]);
+        const excludeTags = new Set<StrategyTagId>(activeFilters.excludeTags || []);
+
         // Tags filter (from annotations)
-        if (activeFilters.tags.length > 0) {
+        if (includeTags.size > 0) {
             result = result.filter(t => {
                 const ann = annotations[t.id];
-                return !!ann?.strategyTag && activeFilters.tags.includes(ann.strategyTag);
+                return !!ann?.strategyTag && includeTags.has(ann.strategyTag);
+            });
+        }
+        if (excludeTags.size > 0) {
+            result = result.filter(t => {
+                const ann = annotations[t.id];
+                return !ann?.strategyTag || !excludeTags.has(ann.strategyTag);
+            });
+        }
+
+        // Reviewed / unreviewed filter
+        if (activeFilters.reviewStatus === 'reviewed') {
+            result = result.filter(t => annotations[t.id]?.reviewed === true);
+        } else if (activeFilters.reviewStatus === 'unreviewed') {
+            result = result.filter(t => annotations[t.id]?.reviewed !== true);
+        }
+
+        // Playbook assignment filter
+        if ((activeFilters.playbookIds || []).length > 0) {
+            const selectedPlaybooks = new Set((activeFilters.playbookIds || []).map((value) => String(value)));
+            result = result.filter(t => {
+                const playbookId = annotations[t.id]?.playbookId;
+                return !!playbookId && selectedPlaybooks.has(String(playbookId));
+            });
+        }
+
+        // Account / connection filter
+        if ((activeFilters.connectionIds || []).length > 0) {
+            const selectedConnections = new Set((activeFilters.connectionIds || []).map((value) => String(value)));
+            result = result.filter(t => {
+                const connectionId = String((t as unknown as { connectionId?: unknown }).connectionId || '');
+                return connectionId.length > 0 && selectedConnections.has(connectionId);
             });
         }
 
@@ -1125,6 +1371,54 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         }
         if (activeFilters.maxHoldTime !== null) {
             result = result.filter(t => (t.holdTime || 0) <= activeFilters.maxHoldTime!);
+        }
+
+        // Entry / exit price filters
+        if (activeFilters.minEntryPrice !== null && activeFilters.minEntryPrice !== undefined) {
+            result = result.filter(t => getTradeEntryPrice(t) >= activeFilters.minEntryPrice!);
+        }
+        if (activeFilters.maxEntryPrice !== null && activeFilters.maxEntryPrice !== undefined) {
+            result = result.filter(t => getTradeEntryPrice(t) <= activeFilters.maxEntryPrice!);
+        }
+        if (activeFilters.minExitPrice !== null && activeFilters.minExitPrice !== undefined) {
+            result = result.filter(t => getTradeExitPrice(t) >= activeFilters.minExitPrice!);
+        }
+        if (activeFilters.maxExitPrice !== null && activeFilters.maxExitPrice !== undefined) {
+            result = result.filter(t => getTradeExitPrice(t) <= activeFilters.maxExitPrice!);
+        }
+
+        // Position size / volume filters
+        if (activeFilters.minPositionSize !== null && activeFilters.minPositionSize !== undefined) {
+            result = result.filter(t => getTradePositionSize(t) >= activeFilters.minPositionSize!);
+        }
+        if (activeFilters.maxPositionSize !== null && activeFilters.maxPositionSize !== undefined) {
+            result = result.filter(t => getTradePositionSize(t) <= activeFilters.maxPositionSize!);
+        }
+        if (activeFilters.minVolume !== null && activeFilters.minVolume !== undefined) {
+            result = result.filter(t => {
+                const volume = Math.abs((t.cost ?? t.price * t.amount) || 0);
+                return volume >= activeFilters.minVolume!;
+            });
+        }
+        if (activeFilters.maxVolume !== null && activeFilters.maxVolume !== undefined) {
+            result = result.filter(t => {
+                const volume = Math.abs((t.cost ?? t.price * t.amount) || 0);
+                return volume <= activeFilters.maxVolume!;
+            });
+        }
+
+        // Realized R-multiple filters (strict stop-based risk)
+        if (activeFilters.minRMultiple !== null && activeFilters.minRMultiple !== undefined) {
+            result = result.filter(t => {
+                const r = getRealizedRMultiple(t, annotations[t.id]);
+                return r !== null && r >= activeFilters.minRMultiple!;
+            });
+        }
+        if (activeFilters.maxRMultiple !== null && activeFilters.maxRMultiple !== undefined) {
+            result = result.filter(t => {
+                const r = getRealizedRMultiple(t, annotations[t.id]);
+                return r !== null && r <= activeFilters.maxRMultiple!;
+            });
         }
 
         // Apply breakeven filter
@@ -1205,7 +1499,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             winningTrades: wins.length,
             losingTrades: losses.length,
             breakevenTrades: breakevens.length,
-            winRate: closedTrades.length > 0 ? (wins.length / closedTrades.length) * 100 : 0,
+            winRate: wins.length + losses.length > 0 ? (wins.length / (wins.length + losses.length)) * 100 : 0,
             totalPnl,
             avgPnl: closedTrades.length > 0 ? totalPnl / closedTrades.length : 0,
             avgWin: wins.length > 0 ? totalWins / wins.length : 0,

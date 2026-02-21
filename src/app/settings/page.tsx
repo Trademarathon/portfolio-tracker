@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -82,6 +82,7 @@ import {
     applyAppearanceSettings,
 } from "@/lib/appearance-settings";
 import type { AIProvider } from "@/lib/api/ai";
+import { getHyperliquidPerpsMeta } from "@/lib/api/hyperliquid";
 
 /** Sync aggregator keys from tvSettings (global_tv_settings) to futures_aggregator_settings so DOM/aggregator hook stays in sync. */
 function syncAggregatorSettingsToFutures(tv: Record<string, any>) {
@@ -98,6 +99,21 @@ function syncAggregatorSettingsToFutures(tv: Record<string, any>) {
         };
         localStorage.setItem(FUTURES_AGGREGATOR_SETTINGS_KEY, JSON.stringify(next));
     } catch { }
+}
+
+function normalizeStoredAIText(value: string | null | undefined, fallback: string): string {
+    const raw = (value || "").trim();
+    if (!raw) return fallback;
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+        try {
+            const parsed = JSON.parse(raw) as { _raw?: unknown; value?: unknown };
+            if (typeof parsed._raw === "string" && parsed._raw.trim()) return parsed._raw.trim();
+            if (typeof parsed.value === "string" && parsed.value.trim()) return parsed.value.trim();
+        } catch {
+            // ignore malformed values
+        }
+    }
+    return raw;
 }
 
 const INDICATORS = [
@@ -369,13 +385,9 @@ export default function SettingsPage() {
 
     const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE_SETTINGS);
 
-    const [aiProvider, setAiProvider] = useState<AIProvider>("auto");
-    const [openaiApiKey, setOpenaiApiKey] = useState("");
-    const [geminiApiKey, setGeminiApiKey] = useState("");
+    const [aiProvider, setAiProvider] = useState<AIProvider>("ollama");
     const [ollamaBaseUrl, setOllamaBaseUrl] = useState("http://127.0.0.1:11434");
     const [ollamaModel, setOllamaModel] = useState("llama3.1:8b");
-    const [showOpenaiKey, setShowOpenaiKey] = useState(false);
-    const [showGeminiKey, setShowGeminiKey] = useState(false);
 
     const [indianMfApiBase, setIndianMfApiBase] = useState(DEFAULT_MF_API_BASE);
     const [indianStocksApiBase, setIndianStocksApiBase] = useState(DEFAULT_STOCKS_API_BASE);
@@ -447,18 +459,18 @@ export default function SettingsPage() {
             const savedAlerts = localStorage.getItem("global_alert_settings");
             if (savedAlerts) setAlertSettings(prev => ({ ...prev, ...JSON.parse(savedAlerts) }));
 
-            const savedOpenaiKey = localStorage.getItem("openai_api_key");
-            if (savedOpenaiKey) setOpenaiApiKey(savedOpenaiKey);
-            const savedGeminiKey = localStorage.getItem("gemini_api_key");
-            if (savedGeminiKey) setGeminiApiKey(savedGeminiKey);
+            localStorage.removeItem("openai_api_key");
+            localStorage.removeItem("gemini_api_key");
             const savedOllamaBase = localStorage.getItem("ollama_base_url");
-            if (savedOllamaBase) setOllamaBaseUrl(savedOllamaBase);
+            const normalizedOllamaBase = normalizeStoredAIText(savedOllamaBase, "http://127.0.0.1:11434");
+            setOllamaBaseUrl(normalizedOllamaBase);
+            localStorage.setItem("ollama_base_url", normalizedOllamaBase);
             const savedOllamaModel = localStorage.getItem("ollama_model");
-            if (savedOllamaModel) setOllamaModel(savedOllamaModel);
-            const savedProvider = (localStorage.getItem("ai_provider") || "auto").toLowerCase();
-            if (savedProvider === "openai" || savedProvider === "gemini" || savedProvider === "ollama" || savedProvider === "auto") {
-                setAiProvider(savedProvider as AIProvider);
-            }
+            const normalizedOllamaModel = normalizeStoredAIText(savedOllamaModel, "llama3.1:8b");
+            setOllamaModel(normalizedOllamaModel);
+            localStorage.setItem("ollama_model", normalizedOllamaModel);
+            setAiProvider("ollama");
+            localStorage.setItem("ai_provider", "ollama");
 
             const savedMfBase = localStorage.getItem(INDIAN_MF_API_BASE_KEY);
             if (savedMfBase) setIndianMfApiBase(savedMfBase);
@@ -512,17 +524,14 @@ export default function SettingsPage() {
         localStorage.setItem("global_tv_settings", JSON.stringify(tvSettings));
         syncAggregatorSettingsToFutures(tvSettings);
         localStorage.setItem("global_alert_settings", JSON.stringify(alertSettings));
-        if (openaiApiKey.trim()) localStorage.setItem("openai_api_key", openaiApiKey.trim());
-        else localStorage.removeItem("openai_api_key");
-        if (geminiApiKey.trim()) localStorage.setItem("gemini_api_key", geminiApiKey.trim());
-        else localStorage.removeItem("gemini_api_key");
+        localStorage.removeItem("openai_api_key");
+        localStorage.removeItem("gemini_api_key");
         if (ollamaBaseUrl.trim()) localStorage.setItem("ollama_base_url", ollamaBaseUrl.trim());
         else localStorage.removeItem("ollama_base_url");
         if (ollamaModel.trim()) localStorage.setItem("ollama_model", ollamaModel.trim());
         else localStorage.removeItem("ollama_model");
-        localStorage.setItem("ai_provider", aiProvider);
-        window.dispatchEvent(new Event("openai-api-key-changed"));
-        window.dispatchEvent(new Event("gemini-api-key-changed"));
+        localStorage.setItem("ai_provider", "ollama");
+        setAiProvider("ollama");
         window.dispatchEvent(new Event("ollama-settings-changed"));
         window.dispatchEvent(new Event("ai-provider-changed"));
 
@@ -1007,6 +1016,13 @@ export default function SettingsPage() {
         lastChecked?: Date;
         reason?: string;
     }>>({});
+    const cexHealthCooldownUntilRef = useRef<Record<string, number>>({});
+
+    const getCexHealthCooldownKey = (conn: PortfolioConnection) => {
+        const type = String(conn.type || '');
+        const keyTail = String(conn.apiKey || '').slice(-8);
+        return `${type}:${keyTail}`;
+    };
 
     // Merge local health with websocket status
     const connectionStatus = connections.reduce((acc, conn) => {
@@ -1060,16 +1076,15 @@ export default function SettingsPage() {
         };
         try {
             if (conn.type === 'hyperliquid' && conn.walletAddress) {
-                // Use Hyperliquid's meta endpoint for fast ping
-                const res = await fetch('https://api.hyperliquid.xyz/info', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type: 'meta' }),
-                });
                 const latency = Date.now() - startTime;
-                if (!res.ok) return { success: false, latency, reason: 'Hyperliquid connection failed' };
+                const meta = await getHyperliquidPerpsMeta();
+                if (!meta) return { success: false, latency, reason: 'Hyperliquid connection failed' };
                 return { success: true, latency };
             } else if (conn.type === 'bybit' && conn.apiKey && conn.secret) {
+                const cooldownKey = getCexHealthCooldownKey(conn);
+                if (Date.now() < (cexHealthCooldownUntilRef.current[cooldownKey] || 0)) {
+                    return { success: false, latency: 0, reason: 'Cooling down after recent server failures' };
+                }
                 // Authenticated probe: treat "connected" as valid credentials + permissions.
                 const res = await fetch('/api/cex/balance', {
                     method: 'POST',
@@ -1083,11 +1098,19 @@ export default function SettingsPage() {
                 });
                 const latency = Date.now() - startTime;
                 if (!res.ok) {
+                    if (res.status >= 500 || res.status === 429) {
+                        cexHealthCooldownUntilRef.current[cooldownKey] = Date.now() + 60000;
+                    }
                     const reason = await parseApiError(res);
                     return { success: false, latency, reason };
                 }
+                cexHealthCooldownUntilRef.current[cooldownKey] = 0;
                 return { success: true, latency };
             } else if (conn.type === 'binance' && conn.apiKey && conn.secret) {
+                const cooldownKey = getCexHealthCooldownKey(conn);
+                if (Date.now() < (cexHealthCooldownUntilRef.current[cooldownKey] || 0)) {
+                    return { success: false, latency: 0, reason: 'Cooling down after recent server failures' };
+                }
                 // Authenticated probe: requires valid key/signature.
                 const res = await fetch('/api/cex/balance', {
                     method: 'POST',
@@ -1100,9 +1123,13 @@ export default function SettingsPage() {
                 });
                 const latency = Date.now() - startTime;
                 if (!res.ok) {
+                    if (res.status >= 500 || res.status === 429) {
+                        cexHealthCooldownUntilRef.current[cooldownKey] = Date.now() + 60000;
+                    }
                     const reason = await parseApiError(res);
                     return { success: false, latency, reason };
                 }
+                cexHealthCooldownUntilRef.current[cooldownKey] = 0;
                 return { success: true, latency };
             } else if (conn.walletAddress) {
                 // Use fast public RPC endpoints with simple eth_blockNumber call
@@ -1114,7 +1141,7 @@ export default function SettingsPage() {
                     'MATIC': 'https://polygon-rpc.com',
                     'BSC': 'https://bsc-dataseed.binance.org',
                     'AVAX': 'https://api.avax.network/ext/bc/C/rpc',
-                    'FTM': 'https://rpc.ftm.tools',
+                    'FTM': 'https://rpcapi.fantom.network',
                     'LINEA': 'https://rpc.linea.build',
                     'SCROLL': 'https://rpc.scroll.io',
                     'ZKSYNC': 'https://mainnet.era.zksync.io',
@@ -1152,6 +1179,10 @@ export default function SettingsPage() {
             return { success: true, latency: Date.now() - startTime };
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
+            if ((conn.type === 'binance' || conn.type === 'bybit') && conn.apiKey) {
+                const cooldownKey = getCexHealthCooldownKey(conn);
+                cexHealthCooldownUntilRef.current[cooldownKey] = Date.now() + 60000;
+            }
             return { success: false, latency: Date.now() - startTime, reason: message };
         }
     };
@@ -1161,12 +1192,16 @@ export default function SettingsPage() {
         const checkAllConnections = async () => {
             const enabledConnections = connections.filter(c => c.enabled !== false);
 
-            // Set all to checking initially
-            const checkingState: typeof connectionHealth = {};
-            enabledConnections.forEach(conn => {
-                checkingState[conn.id] = { status: 'checking', lastChecked: new Date(), reason: undefined };
+            // Only initialize unseen connections as checking; keep existing statuses stable.
+            setConnectionHealth(prev => {
+                const next = { ...prev };
+                enabledConnections.forEach(conn => {
+                    if (!next[conn.id]) {
+                        next[conn.id] = { status: 'checking', lastChecked: new Date(), reason: undefined };
+                    }
+                });
+                return next;
             });
-            setConnectionHealth(prev => ({ ...prev, ...checkingState }));
 
             // Test connections in parallel (batched to avoid rate limits)
             const batchSize = 3;
@@ -1345,18 +1380,10 @@ export default function SettingsPage() {
                     <SecurityTab
                         aiProvider={aiProvider}
                         setAiProvider={setAiProvider}
-                        openaiApiKey={openaiApiKey}
-                        setOpenaiApiKey={setOpenaiApiKey}
-                        geminiApiKey={geminiApiKey}
-                        setGeminiApiKey={setGeminiApiKey}
                         ollamaBaseUrl={ollamaBaseUrl}
                         setOllamaBaseUrl={setOllamaBaseUrl}
                         ollamaModel={ollamaModel}
                         setOllamaModel={setOllamaModel}
-                        showOpenaiKey={showOpenaiKey}
-                        setShowOpenaiKey={setShowOpenaiKey}
-                        showGeminiKey={showGeminiKey}
-                        setShowGeminiKey={setShowGeminiKey}
                         notify={notify}
                     />
                 </TabsContent>
@@ -2573,75 +2600,67 @@ export default function SettingsPage() {
                 </TabsContent>
 
                 {/* --- PREFERENCES TAB (ADVANCED) --- */}
-                <TabsContent value="preferences" className={settingsContentClass}>
-                    {/* Spot orders – average price (custom date/time range) */}
-                    <div className="mb-6">
-                        <SpotAvgPriceSettingsLazy />
-                    </div>
-                    {/* Visual Preferences */}
-                    <Card className="bg-card/50 backdrop-blur-xl border-border">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2 text-base">
-                                <Search className="h-4 w-4 text-zinc-400" />
+                <TabsContent value="preferences" className={cn(settingsContentClass, "space-y-5")}>
+                    <SpotAvgPriceSettingsLazy />
+
+                    <Card className="tm-pref-card border-white/12 bg-transparent shadow-none">
+                        <CardHeader className="pb-4">
+                            <CardTitle className="flex items-center gap-2.5 text-base text-zinc-100">
+                                <span className="tm-pref-title-icon">
+                                    <Search className="h-4 w-4 text-cyan-200" />
+                                </span>
                                 Display Preferences
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            {/* Dust Threshold */}
                             <div className="space-y-3">
-                                <label className="text-xs font-bold uppercase text-zinc-500">Dust Threshold ($)</label>
-                                <div className="flex gap-4 items-center">
+                                <label className="tm-pref-label">Dust Threshold ($)</label>
+                                <div className="flex flex-col items-start gap-2 md:flex-row md:items-center md:gap-4">
                                     <input
                                         type="number"
                                         step="0.01"
-                                        className="bg-black/40 border border-white/10 rounded p-3 text-white text-sm w-32 focus:border-primary/50 outline-none"
+                                        className="tm-pref-input tm-pref-input--compact w-24"
                                         value={dustThreshold}
                                         onChange={(e) => setDustThreshold(parseFloat(e.target.value) || 0)}
                                     />
-                                    <p className="text-xs text-muted-foreground">Balances below this value will be hidden from Spot/Overview.</p>
+                                    <p className="text-xs text-zinc-400">Balances below this value will be hidden from Spot/Overview.</p>
                                 </div>
                             </div>
 
-                            {/* Hide Spam */}
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-4 border-t border-white/8 pt-4">
                                 <div className="space-y-0.5">
                                     <label className="text-sm font-medium text-zinc-200">Hide Spam Assets</label>
-                                    <p className="text-xs text-muted-foreground">Automatically filter out known spam tokens and scam NFTs.</p>
+                                    <p className="text-xs text-zinc-400">Automatically filter out known spam tokens and scam NFTs.</p>
                                 </div>
-                                <button
-                                    onClick={() => setHideSpam(!hideSpam)}
-                                    className={cn(
-                                        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                                        hideSpam ? "bg-emerald-500" : "bg-zinc-700"
-                                    )}
-                                >
-                                    <span className={cn("inline-block h-3 w-3 transform rounded-full bg-white transition-transform", hideSpam ? "translate-x-5" : "translate-x-1")} />
-                                </button>
+                                <Switch
+                                    checked={hideSpam}
+                                    onCheckedChange={setHideSpam}
+                                    className="tm-pref-switch data-[state=checked]:bg-emerald-400 data-[state=unchecked]:bg-zinc-700/85"
+                                />
                             </div>
                         </CardContent>
                     </Card>
 
-                    {/* Transaction Filters */}
-                    <Card className="bg-card/50 backdrop-blur-xl border-border">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2 text-base">
-                                <Filter className="h-4 w-4 text-zinc-400" />
+                    <Card className="tm-pref-card border-white/12 bg-transparent shadow-none">
+                        <CardHeader className="pb-4">
+                            <CardTitle className="flex items-center gap-2.5 text-base text-zinc-100">
+                                <span className="tm-pref-title-icon">
+                                    <Filter className="h-4 w-4 text-cyan-200" />
+                                </span>
                                 Transaction Filter Defaults
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <div className="space-y-3">
-                                <label className="text-xs font-bold uppercase text-zinc-500">Visible Types</label>
+                                <label className="tm-pref-label">Visible Types</label>
                                 <div className="flex flex-wrap gap-2">
-                                    {['buy', 'sell', 'transfer'].map(type => (
+                                    {["buy", "sell", "transfer"].map((type) => (
                                         <button
                                             key={type}
                                             onClick={() => toggleTransactionType(type)}
                                             className={cn(
-                                                "px-4 py-2 rounded-lg border text-xs font-bold uppercase transition-all",
-                                                filters.transactionTypes.includes(type)
-                                                    ? "border-primary bg-primary/20 text-primary"
-                                                    : "border-white/10 bg-white/5 text-zinc-500 hover:border-white/20"
+                                                "tm-pref-chip",
+                                                filters.transactionTypes.includes(type) && "tm-pref-chip--active"
                                             )}
                                         >
                                             {type}
@@ -2650,29 +2669,32 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                 <div className="space-y-3">
-                                    <label className="text-xs font-bold uppercase text-zinc-500">Min Transaction ($)</label>
+                                    <label className="tm-pref-label">Min Transaction ($)</label>
                                     <input
                                         type="number"
-                                        className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
+                                        className="tm-pref-input"
                                         value={filters.minAmount}
                                         onChange={(e) => setFilters({ ...filters, minAmount: parseFloat(e.target.value) || 0 })}
                                         placeholder="0"
                                     />
                                 </div>
                                 <div className="space-y-3">
-                                    <label className="text-xs font-bold uppercase text-zinc-500">Default Date Range</label>
-                                    <select
-                                        className="w-full bg-black/40 border border-white/10 rounded p-3 text-white text-sm focus:border-primary/50 outline-none"
-                                        value={filters.dateRange}
-                                        onChange={(e) => setFilters({ ...filters, dateRange: e.target.value as any })}
-                                    >
-                                        <option value="all">All Time</option>
-                                        <option value="7d">Last 7 Days</option>
-                                        <option value="30d">Last 30 Days</option>
-                                        <option value="90d">Last 90 Days</option>
-                                    </select>
+                                    <label className="tm-pref-label">Default Date Range</label>
+                                    <div className="relative">
+                                        <select
+                                            className="tm-pref-input appearance-none pr-10"
+                                            value={filters.dateRange}
+                                            onChange={(e) => setFilters({ ...filters, dateRange: e.target.value as any })}
+                                        >
+                                            <option value="all">All Time</option>
+                                            <option value="7d">Last 7 Days</option>
+                                            <option value="30d">Last 30 Days</option>
+                                            <option value="90d">Last 90 Days</option>
+                                        </select>
+                                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                                    </div>
                                 </div>
                             </div>
                         </CardContent>

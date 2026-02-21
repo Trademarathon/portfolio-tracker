@@ -222,8 +222,16 @@ export function AlertsSettings() {
 
             {/* Delivery Channels Section */}
             <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-                <button
+                <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedSection(expandedSection === 'channels' ? null : 'channels')}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedSection(expandedSection === 'channels' ? null : 'channels');
+                        }
+                    }}
                     className="w-full"
                 >
                     <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
@@ -243,7 +251,7 @@ export function AlertsSettings() {
                             )} />
                         </div>
                     </CardHeader>
-                </button>
+                </div>
                 
                 <AnimatePresence>
                     {expandedSection === 'channels' && (
@@ -621,8 +629,16 @@ export function AlertsSettings() {
             
             {/* Quiet Hours Section */}
             <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-                <button
+                <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedSection(expandedSection === 'quiet' ? null : 'quiet')}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedSection(expandedSection === 'quiet' ? null : 'quiet');
+                        }
+                    }}
                     className="w-full"
                 >
                     <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
@@ -642,7 +658,7 @@ export function AlertsSettings() {
                             )} />
                         </div>
                     </CardHeader>
-                </button>
+                </div>
                 
                 <AnimatePresence>
                     {expandedSection === 'quiet' && (
@@ -776,8 +792,16 @@ export function AlertsSettings() {
             
             {/* Active Alerts Section */}
             <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-                <button
+                <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedSection(expandedSection === 'alerts' ? null : 'alerts')}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedSection(expandedSection === 'alerts' ? null : 'alerts');
+                        }
+                    }}
                     className="w-full"
                 >
                     <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
@@ -804,7 +828,7 @@ export function AlertsSettings() {
                             )} />
                         </div>
                     </CardHeader>
-                </button>
+                </div>
                 
                 <AnimatePresence>
                     {expandedSection === 'alerts' && (
@@ -865,8 +889,16 @@ export function AlertsSettings() {
 
             {/* Screener Alerts Section */}
             <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-                <button
+                <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedSection(expandedSection === 'screener' ? null : 'screener')}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedSection(expandedSection === 'screener' ? null : 'screener');
+                        }
+                    }}
                     className="w-full"
                 >
                     <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
@@ -893,7 +925,7 @@ export function AlertsSettings() {
                             )} />
                         </div>
                     </CardHeader>
-                </button>
+                </div>
                 <AnimatePresence>
                     {expandedSection === 'screener' && (
                         <motion.div
@@ -973,8 +1005,16 @@ export function AlertsSettings() {
             
             {/* AI Feed Alerts Section */}
             <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-                <button
+                <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedSection(expandedSection === 'aifeed' ? null : 'aifeed')}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedSection(expandedSection === 'aifeed' ? null : 'aifeed');
+                        }
+                    }}
                     className="w-full"
                 >
                     <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
@@ -1001,7 +1041,7 @@ export function AlertsSettings() {
                             )} />
                         </div>
                     </CardHeader>
-                </button>
+                </div>
                 
                 <AnimatePresence>
                     {expandedSection === 'aifeed' && (
@@ -1490,8 +1530,16 @@ export function AlertsSettings() {
             
             {/* Alert Templates Section */}
             <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-                <button
+                <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedSection(expandedSection === 'templates' ? null : 'templates')}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedSection(expandedSection === 'templates' ? null : 'templates');
+                        }
+                    }}
                     className="w-full"
                 >
                     <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
@@ -1511,7 +1559,7 @@ export function AlertsSettings() {
                             )} />
                         </div>
                     </CardHeader>
-                </button>
+                </div>
                 
                 <AnimatePresence>
                     {expandedSection === 'templates' && (

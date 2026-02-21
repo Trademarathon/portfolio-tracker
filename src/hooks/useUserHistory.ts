@@ -12,6 +12,48 @@ function normalizeConnectionType(type: unknown): string {
     return String(type || '').toLowerCase().trim();
 }
 
+function inferTradeClassification(
+    trade: any,
+    connType: string
+): { instrumentType: 'future' | 'crypto'; marketType: 'perp' | 'future' | 'spot' | 'funding' } {
+    const feeType = String(trade?.feeType || '').toLowerCase();
+    const side = String(trade?.side || '').toLowerCase();
+    if (feeType === 'funding' || side === 'funding') {
+        return { instrumentType: 'future', marketType: 'funding' };
+    }
+
+    const symbolHint = String(trade?.rawSymbol || trade?.symbol || '').toUpperCase();
+    const marketHint = [
+        trade?.marketType,
+        trade?.market,
+        trade?.category,
+        trade?.contractType,
+        trade?.instType,
+        trade?.type,
+        trade?.info?.category,
+        trade?.info?.marketType,
+        trade?.info?.instType,
+    ]
+        .filter(Boolean)
+        .map((v) => String(v).toLowerCase())
+        .join(' ');
+
+    const hasDerivativeHint =
+        connType === 'hyperliquid' ||
+        /PERP|SWAP|FUTURES|CONTRACT|:USDT|:USD|USDTM|UMCBL|DMCBL/i.test(symbolHint) ||
+        /(perp|swap|future|futures|linear|inverse|contract|derivative)/i.test(marketHint) ||
+        trade?.leverage !== undefined ||
+        trade?.info?.leverage !== undefined ||
+        trade?.info?.positionIdx !== undefined;
+
+    if (hasDerivativeHint) {
+        const marketType = /(future|futures|contract)/i.test(marketHint) ? 'future' : 'perp';
+        return { instrumentType: 'future', marketType };
+    }
+
+    return { instrumentType: 'crypto', marketType: 'spot' };
+}
+
 export function useUserHistory(connections: PortfolioConnection[]) {
     const safeConnections = Array.isArray(connections)
         ? connections.map((conn) => ({ ...conn, type: normalizeConnectionType(conn.type) as PortfolioConnection['type'] }))
@@ -48,6 +90,8 @@ export function useUserHistory(connections: PortfolioConnection[]) {
                                 takerOrMaker: f.crossed ? 'taker' : 'maker',
                                 feeType: 'trading',
                                 sourceType: 'cex',
+                                instrumentType: 'future',
+                                marketType: 'perp',
                             })))
                             .catch((e: Error) => {
                                 console.warn("Failed hyperliquid history", e);
@@ -95,6 +139,8 @@ export function useUserHistory(connections: PortfolioConnection[]) {
                                 connectionId: conn.id,
                                 feeType: 'funding',
                                 sourceType: 'cex',
+                                instrumentType: 'future',
+                                marketType: 'funding',
                             })))
                             .catch((e: Error) => {
                                 console.warn("Failed hyperliquid funding", e);
@@ -123,18 +169,23 @@ export function useUserHistory(connections: PortfolioConnection[]) {
                     );
                     tradePromises.push(
                         fetchCexTrades(connType as 'binance' | 'bybit', conn.apiKey, conn.secret)
-                            .then(res => res.map((t: any) => ({
-                                ...t,
-                                connectionId: conn.id,
-                                // Ensure fee fields are preserved/normalized
-                                fee: t.fee || 0,
-                                feeCurrency: t.feeCurrency || 'USDT',
-                                feeAsset: t.feeAsset || t.feeCurrency || 'USDT',
-                                feeUsd: typeof t.feeUsd === 'number' ? t.feeUsd : undefined,
-                                feeType: 'trading',
-                                takerOrMaker: t.maker ? 'maker' : 'taker', // Ensure API returns this or infer
-                                sourceType: 'cex',
-                            })))
+                            .then(res => res.map((t: any) => {
+                                const classification = inferTradeClassification(t, connType);
+                                return {
+                                    ...t,
+                                    connectionId: conn.id,
+                                    // Ensure fee fields are preserved/normalized
+                                    fee: t.fee || 0,
+                                    feeCurrency: t.feeCurrency || 'USDT',
+                                    feeAsset: t.feeAsset || t.feeCurrency || 'USDT',
+                                    feeUsd: typeof t.feeUsd === 'number' ? t.feeUsd : undefined,
+                                    feeType: t.feeType || 'trading',
+                                    takerOrMaker: t.maker ? 'maker' : 'taker', // Ensure API returns this or infer
+                                    sourceType: 'cex',
+                                    instrumentType: t.instrumentType || classification.instrumentType,
+                                    marketType: t.marketType || classification.marketType,
+                                };
+                            }))
                             .catch(e => { console.warn("CEX trades failed", e); return []; })
                     );
                 }
@@ -178,42 +229,90 @@ export function useUserHistory(connections: PortfolioConnection[]) {
                     if (isSolana) {
                         tradePromises.push(
                             fetchHistoryViaProxy('SOL', 'solana')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isSui) {
                         tradePromises.push(
                             fetchHistoryViaProxy('SUI', 'sui')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isAptos) {
                         tradePromises.push(
                             fetchHistoryViaProxy('APT', 'aptos')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isTon) {
                         tradePromises.push(
                             fetchHistoryViaProxy('TON', 'ton')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isTron) {
                         tradePromises.push(
                             fetchHistoryViaProxy('TRX', 'tron')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isXrp) {
                         tradePromises.push(
                             fetchHistoryViaProxy('XRP', 'xrp')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isBtc) {
                         tradePromises.push(
                             fetchHistoryViaProxy('BTC', 'btc')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isHbar) {
                         tradePromises.push(
                             fetchHistoryViaProxy('HBAR', 'hbar')
-                                .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                .then((history: any[]) => history.map((tx: any) => ({
+                                    ...tx,
+                                    connectionId: conn.id,
+                                    sourceType: 'wallet',
+                                    instrumentType: tx.instrumentType || 'crypto',
+                                    marketType: tx.marketType || 'spot',
+                                })))
                         );
                     } else if (isEvmLike) {
                         // EVM Chains
@@ -221,7 +320,13 @@ export function useUserHistory(connections: PortfolioConnection[]) {
                         for (const evmChain of evmChains) {
                             tradePromises.push(
                                 fetchHistoryViaProxy(evmChain, 'evm')
-                                    .then((history: any[]) => history.map((tx: any) => ({ ...tx, connectionId: conn.id, sourceType: 'wallet' })))
+                                    .then((history: any[]) => history.map((tx: any) => ({
+                                        ...tx,
+                                        connectionId: conn.id,
+                                        sourceType: 'wallet',
+                                        instrumentType: tx.instrumentType || 'crypto',
+                                        marketType: tx.marketType || 'spot',
+                                    })))
                             );
                         }
                     }

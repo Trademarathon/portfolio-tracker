@@ -60,6 +60,7 @@ interface SignalData {
 type Preset = "all" | "high-volume" | "oi-spike" | "big-movers" | "high-funding";
 
 const SCREENER_FILTER_PRESETS_KEY = "screener_filter_presets";
+const WATCHLIST_FILTERS_KEY = "watchlist_filters";
 const SCREENER_COLUMN_VISIBILITY_KEY = "screener_column_visibility";
 const SCREENER_COLUMN_ORDER_KEY = "screener_column_order";
 const SCREENER_COLUMN_WIDTHS_KEY = "screener_column_widths";
@@ -161,6 +162,15 @@ interface FilterPreset {
     filters: ScreenerFilter[];
 }
 
+interface WatchlistFiltersState {
+    version: 1;
+    search: string;
+    preset: Preset;
+    exchangeFilter: string;
+    filters: ScreenerFilter[];
+    updatedAt: number;
+}
+
 // --- Helper Functions ---
 
 const formatCompact = (val: number) => {
@@ -180,6 +190,26 @@ const formatMarketPrice = (price: number | undefined) => {
     if (p >= 0.01) return `$${p.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 6 })}`;
     return `$${p.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 8 })}`;
 };
+
+const PRESET_VALUES: Preset[] = ["all", "high-volume", "oi-spike", "big-movers", "high-funding"];
+
+function isPresetValue(value: unknown): value is Preset {
+    return typeof value === "string" && PRESET_VALUES.includes(value as Preset);
+}
+
+function isScreenerFilter(input: unknown): input is ScreenerFilter {
+    if (!input || typeof input !== "object") return false;
+    const f = input as Partial<ScreenerFilter>;
+    const validOperator = f.operator === "gt" || f.operator === "lt" || f.operator === "gte" || f.operator === "lte";
+    return (
+        typeof f.id === "string" &&
+        typeof f.metric === "string" &&
+        typeof f.label === "string" &&
+        validOperator &&
+        typeof f.value === "number" &&
+        Number.isFinite(f.value)
+    );
+}
 
 // --- Constants --- Orion column parity (https://screener.orionterminal.com/)
 const COLUMN_GROUPS: ColumnGroup[] = [
@@ -443,7 +473,7 @@ const Row = React.memo(({
             return () => clearTimeout(timer);
         }
     }, [item?.price, item, symbolKey]);
-    
+
     // Early return after hooks
     if (!item || !item.symbol) return null;
 
@@ -629,7 +659,7 @@ const Row = React.memo(({
             <div className={cn(
                 "flex items-center h-full border-b border-white/[0.045] transition-all duration-200 cursor-pointer relative group rounded-md",
                 "hover:bg-[linear-gradient(92deg,rgba(34,211,238,0.08),rgba(255,255,255,0.02),rgba(0,0,0,0.06))] hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]",
-                isSelected && "bg-cyan-500/10 border-l-[2px] border-l-cyan-300 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.22)]",
+                isSelected && "bg-gradient-to-r from-indigo-500/15 via-indigo-500/5 to-transparent border-l-[3px] border-l-indigo-400 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.22)]",
                 flash === 'up' && "flash-up",
                 flash === 'down' && "flash-down",
                 preset !== "all" && "ring-1 ring-amber-500/20 rounded-sm shadow-[0_0_12px_rgba(245,158,11,0.08)]",
@@ -686,7 +716,12 @@ export const MarketTable = React.memo(({
     aiInsightSymbols?: Set<string>,
     onToggleAiInsight?: (symbolBase: string) => void,
 }) => {
-    const screenerData = useScreenerData();
+    const useInternalScreenerFeed = !tickersOverride;
+    const screenerData = useScreenerData({
+        live: useInternalScreenerFeed,
+        enableRestFallback: useInternalScreenerFeed,
+        fetchMarkets: useInternalScreenerFeed,
+    });
     const { alerts, signals, addAlert, checkAlerts, detectSignals } = useAlerts();
 
     const tickersList = tickersOverride ?? (screenerData?.tickersList || []);
@@ -829,6 +864,24 @@ export const MarketTable = React.memo(({
         } catch { /* ignore */ }
     }, [favorites, storageHydrated]);
 
+    useEffect(() => {
+        if (!storageHydrated) return;
+        const payload: WatchlistFiltersState = {
+            version: 1,
+            search,
+            preset,
+            exchangeFilter,
+            filters: filters.map((f) => ({ ...f })),
+            updatedAt: Date.now(),
+        };
+        try {
+            localStorage.setItem(WATCHLIST_FILTERS_KEY, JSON.stringify(payload));
+            window.dispatchEvent(new CustomEvent("watchlist-filters-changed", { detail: payload }));
+        } catch {
+            // ignore
+        }
+    }, [search, preset, filters, exchangeFilter, storageHydrated]);
+
     const setPresetFromLabel = (label: string) => {
         const key = label.toLowerCase().replace(/\s+/g, "-") as Preset;
         setPreset(key);
@@ -848,6 +901,20 @@ export const MarketTable = React.memo(({
                 const parsed = JSON.parse(rawFavorites) as unknown;
                 if (Array.isArray(parsed)) {
                     setFavorites(new Set(parsed.filter((v): v is string => typeof v === "string")));
+                }
+            }
+
+            const rawWatchlistFilters = localStorage.getItem(WATCHLIST_FILTERS_KEY);
+            if (rawWatchlistFilters) {
+                const parsed = JSON.parse(rawWatchlistFilters) as Partial<WatchlistFiltersState>;
+                if (typeof parsed.search === "string") {
+                    setSearch(parsed.search);
+                }
+                if (isPresetValue(parsed.preset)) {
+                    setPreset(parsed.preset);
+                }
+                if (Array.isArray(parsed.filters)) {
+                    setFilters(parsed.filters.filter(isScreenerFilter));
                 }
             }
 
@@ -1092,202 +1159,202 @@ export const MarketTable = React.memo(({
     return (
         <div className="tm-market-table-shell tm-premium-card h-full w-full flex flex-col bg-zinc-950/90 overflow-hidden rounded-2xl border border-white/10 clone-shell clone-divider">
             {!hideToolbar && (
-            <div className="tm-market-toolbar relative flex items-center justify-between px-4 py-2.5 flex-shrink-0 bg-zinc-900/80 border-b border-white/10">
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="relative shrink-0">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
-                        <Input
-                            placeholder="Search symbols..."
-                            className="w-[168px] h-8 bg-zinc-900/80 border-white/12 pl-8 text-[11px] text-zinc-200 placeholder:text-zinc-500 focus:bg-zinc-800 focus:border-cyan-400/45 transition-all rounded-lg"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                    </div>
-                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest shrink-0">
-                        <span className="text-zinc-300 font-mono">{filteredItems.length}</span>/<span className="font-mono">{tickersList.length}</span> SYMBOLS
-                    </div>
-                    <div className="flex items-center gap-1 flex-wrap">
-                        {["All", "High Volume", "OI Spike", "Big Movers", "High Funding"].map(label => {
-                            const key = label.toLowerCase().replace(/\s+/g, "-") as Preset;
-                            const active = preset === key;
-                            return (
-                                <button
-                                    key={label}
-                                    type="button"
-                                    className={cn(
-                                        "tm-market-preset h-7 px-3 text-[10px] font-black uppercase tracking-wider rounded-lg border transition-all",
-                                        active
-                                            ? "bg-white/14 text-white border-white/25"
-                                            : "text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-white/5"
-                                    )}
-                                    onClick={() => setPresetFromLabel(label)}
-                                >
-                                    {label === "All" ? "ALL" : label.toUpperCase().replace(/\s+/g, " ")}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2 pr-1 shrink-0">
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" className="h-8 bg-zinc-800/80 border-white/10 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors gap-2 rounded px-3">
-                                <Save className="h-3 w-3" />
-                                <span className="font-bold">Saved: {presets.find(p => p.id === selectedPresetId)?.name ?? "—"}</span>
-                                <ChevronDown className="h-3 w-3 opacity-30" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="bg-zinc-900 border-white/10 w-52 text-zinc-400">
-                            <DropdownMenuLabel className="text-[10px] font-black uppercase text-zinc-500 p-2">Filter presets</DropdownMenuLabel>
-                            <DropdownMenuSeparator className="bg-white/5" />
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    setFilters([]);
-                                    setFiltersOpen(true);
-                                }}
-                                className="py-2 gap-2 hover:bg-white/5 focus:bg-white/5 text-amber-400"
-                            >
-                                <Plus className="h-3 w-3" />
-                                Create custom filter
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator className="bg-white/5" />
-                            {presets.length === 0 ? (
-                                <div className="px-2 py-4 text-[11px] text-zinc-500">No saved presets</div>
-                            ) : (
-                                presets.map(p => (
-                                    <DropdownMenuItem key={p.id} onClick={() => loadPreset(p)} className="py-2 flex items-center justify-between gap-2 hover:bg-white/5 focus:bg-white/5">
-                                        <div className="flex flex-col">
-                                            <span className={cn("text-[11px] font-bold", selectedPresetId === p.id && "text-amber-400")}>{p.name}</span>
-                                            <span className="text-[9px] text-zinc-500">{p.filters.length} filters</span>
-                                        </div>
-                                        <button onClick={(e) => { e.stopPropagation(); deletePreset(p.id, e); }} className="p-1 hover:text-rose-400 text-zinc-500">
-                                            <X className="h-3 w-3" />
-                                        </button>
-                                    </DropdownMenuItem>
-                                ))
-                            )}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-
-                    <Button variant="outline" size="sm" className="h-8 bg-zinc-800/80 border-white/10 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors gap-2 rounded px-3 disabled:opacity-50" onClick={handleSavePreset} disabled={filters.length === 0} title={filters.length === 0 ? "Add filters first" : "Save current filters as preset"}>
-                        <Save className="h-3 w-3" />
-                        Save
-                    </Button>
-
-                    <div className="relative">
-                        <Button variant="outline" size="icon" className="h-8 w-8 bg-zinc-800/80 border-white/10 text-zinc-400 hover:text-zinc-200 relative" onClick={() => setFiltersOpen(!filtersOpen)}>
-                            <Filter className="h-3.5 w-3.5" />
-                            {filters.length > 0 && (
-                                <div className="absolute -top-1 -right-1 h-3.5 w-3.5 bg-primary text-primary-foreground text-[8px] font-bold flex items-center justify-center rounded-full border border-card">
-                                    {filters.length}
-                                </div>
-                            )}
-                        </Button>
-                        <FiltersPanel open={filtersOpen} onClose={() => setFiltersOpen(false)} filters={filters} onFiltersChange={setFilters} onSaveAsPreset={() => setSavePresetOpen(true)} />
-                    </div>
-
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button variant="outline" size="icon" className="h-8 w-8 bg-zinc-800/80 border-white/10 text-zinc-400 hover:text-zinc-200">
-                                <Columns3 className="h-3.5 w-3.5" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[480px] bg-zinc-900 border-white/10 shadow-2xl p-0 overflow-hidden" align="end">
-                            <div className="flex items-center justify-between p-4 border-b border-white/10">
-                                <h3 className="text-[12px] font-bold text-zinc-200">Column Visibility</h3>
-                                <PopoverClose asChild>
-                                    <button className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/10 transition-colors">
-                                        <X className="h-4 w-4" />
-                                    </button>
-                                </PopoverClose>
-                            </div>
-                            <div className="p-4 max-h-[500px] overflow-y-auto custom-scrollbar space-y-6">
-                                {COLUMN_GROUPS.map((group, idx) => (
-                                    <div
-                                        key={group.title}
+                <div className="tm-market-toolbar relative flex items-center justify-between px-4 py-2.5 flex-shrink-0 bg-zinc-900/80 border-b border-white/10">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <div className="relative shrink-0">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+                            <Input
+                                placeholder="Search symbols..."
+                                className="w-[168px] h-8 bg-zinc-900/80 border-white/12 pl-8 text-[11px] text-zinc-200 placeholder:text-zinc-500 focus:bg-zinc-800 focus:border-cyan-400/45 transition-all rounded-lg"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                        </div>
+                        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest shrink-0">
+                            <span className="text-zinc-300 font-mono">{filteredItems.length}</span>/<span className="font-mono">{tickersList.length}</span> SYMBOLS
+                        </div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {["All", "High Volume", "OI Spike", "Big Movers", "High Funding"].map(label => {
+                                const key = label.toLowerCase().replace(/\s+/g, "-") as Preset;
+                                const active = preset === key;
+                                return (
+                                    <button
+                                        key={label}
+                                        type="button"
                                         className={cn(
-                                            "space-y-3 pb-4",
-                                            idx < COLUMN_GROUPS.length - 1 && "border-b border-white/10"
+                                            "tm-market-preset h-7 px-3 text-[10px] font-black uppercase tracking-wider rounded-lg border transition-all",
+                                            active
+                                                ? "bg-white/14 text-white border-white/25"
+                                                : "text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-white/5"
                                         )}
+                                        onClick={() => setPresetFromLabel(label)}
                                     >
-                                        <div className="flex items-center justify-between">
-                                            <h4 className="text-[10px] font-black text-zinc-500 tracking-widest">{group.title}</h4>
-                                            {group.showAll && (
-                                                <button
-                                                    onClick={() => {
-                                                        const updates = { ...visibleColumns };
-                                                        group.columns.forEach(c => { if (!c.disabled) updates[c.key] = true; });
-                                                        setVisibleColumns(updates);
-                                                    }}
-                                                    className="text-[10px] font-bold text-amber-400 hover:underline"
-                                                >
-                                                    Show All
-                                                </button>
-                                            )}
-                                        </div>
-                                        <div className={cn("gap-2 grid", group.showAll ? "grid-cols-7" : "grid-cols-3")}>
-                                            {group.columns.map((col: ColumnDef) => (
-                                                <div key={col.key} className="flex items-center gap-2 bg-white/5 p-2 rounded hover:bg-white/10 transition-colors cursor-pointer group/col border border-white/5"
-                                                    onClick={() => !col.disabled && toggleColumn(col.key)}>
-                                                    <Checkbox
-                                                        checked={col.key === 'market' ? true : !!visibleColumns[col.key]}
-                                                        disabled={col.disabled}
-                                                        className="h-3.5 w-3.5 border-zinc-600 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
-                                                    />
-                                                    <span className={cn("text-[11px] font-bold truncate",
-                                                        (col.key === 'market' || !!visibleColumns[col.key]) ? "text-zinc-200" : "text-zinc-500"
-                                                    )}>{col.label}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="p-4 bg-zinc-800/50 border-t border-white/10 flex items-center gap-2">
-                                <Button
-                                    className="flex-1 h-8 bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-zinc-200"
-                                    onClick={() => {
-                                        const allCols: Record<string, boolean> = { market: true };
-                                        COLUMN_GROUPS.forEach(g => g.columns.forEach(c => {
-                                            if (!c.disabled) allCols[c.key] = true;
-                                        }));
-                                        setVisibleColumns(allCols);
-                                    }}
-                                >
-                                    All
-                                </Button>
-                                <Button
-                                    className="flex-1 h-8 bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-zinc-200"
-                                    onClick={() => setVisibleColumns({ ...ORION_DEFAULT_COLUMNS })}
-                                >
-                                    Defaults
-                                </Button>
-                                <Button
-                                    className="flex-1 h-8 bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-zinc-200"
-                                    onClick={() => setVisibleColumns({ ...ORION_CORE_ONLY })}
-                                >
-                                    Core Only
-                                </Button>
-                            </div>
-                        </PopoverContent>
-                    </Popover>
+                                        {label === "All" ? "ALL" : label.toUpperCase().replace(/\s+/g, " ")}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
 
-                    <div className="flex items-center border border-white/10 rounded overflow-hidden h-8">
-                        <Button variant="ghost" size="icon" className="h-full w-8 border-r border-white/10 text-zinc-500 bg-zinc-800/50 rounded-none hover:text-zinc-300">
-                            <LayoutGrid className="h-3.5 w-3.5" />
+                    <div className="flex items-center gap-2 pr-1 shrink-0">
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-8 bg-zinc-800/80 border-white/10 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors gap-2 rounded px-3">
+                                    <Save className="h-3 w-3" />
+                                    <span className="font-bold">Saved: {presets.find(p => p.id === selectedPresetId)?.name ?? "—"}</span>
+                                    <ChevronDown className="h-3 w-3 opacity-30" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="bg-zinc-900 border-white/10 w-52 text-zinc-400">
+                                <DropdownMenuLabel className="text-[10px] font-black uppercase text-zinc-500 p-2">Filter presets</DropdownMenuLabel>
+                                <DropdownMenuSeparator className="bg-white/5" />
+                                <DropdownMenuItem
+                                    onClick={() => {
+                                        setFilters([]);
+                                        setFiltersOpen(true);
+                                    }}
+                                    className="py-2 gap-2 hover:bg-white/5 focus:bg-white/5 text-amber-400"
+                                >
+                                    <Plus className="h-3 w-3" />
+                                    Create custom filter
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="bg-white/5" />
+                                {presets.length === 0 ? (
+                                    <div className="px-2 py-4 text-[11px] text-zinc-500">No saved presets</div>
+                                ) : (
+                                    presets.map(p => (
+                                        <DropdownMenuItem key={p.id} onClick={() => loadPreset(p)} className="py-2 flex items-center justify-between gap-2 hover:bg-white/5 focus:bg-white/5">
+                                            <div className="flex flex-col">
+                                                <span className={cn("text-[11px] font-bold", selectedPresetId === p.id && "text-amber-400")}>{p.name}</span>
+                                                <span className="text-[9px] text-zinc-500">{p.filters.length} filters</span>
+                                            </div>
+                                            <button onClick={(e) => { e.stopPropagation(); deletePreset(p.id, e); }} className="p-1 hover:text-rose-400 text-zinc-500">
+                                                <X className="h-3 w-3" />
+                                            </button>
+                                        </DropdownMenuItem>
+                                    ))
+                                )}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <Button variant="outline" size="sm" className="h-8 bg-zinc-800/80 border-white/10 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors gap-2 rounded px-3 disabled:opacity-50" onClick={handleSavePreset} disabled={filters.length === 0} title={filters.length === 0 ? "Add filters first" : "Save current filters as preset"}>
+                            <Save className="h-3 w-3" />
+                            Save
                         </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-full w-8 text-zinc-500 hover:text-zinc-200 rounded-none"
-                            onClick={onOpenAlerts}
-                        >
-                            <Bell className="h-3.5 w-3.5" />
-                        </Button>
+
+                        <div className="relative">
+                            <Button variant="outline" size="icon" className="h-8 w-8 bg-zinc-800/80 border-white/10 text-zinc-400 hover:text-zinc-200 relative" onClick={() => setFiltersOpen(!filtersOpen)}>
+                                <Filter className="h-3.5 w-3.5" />
+                                {filters.length > 0 && (
+                                    <div className="absolute -top-1 -right-1 h-3.5 w-3.5 bg-primary text-primary-foreground text-[8px] font-bold flex items-center justify-center rounded-full border border-card">
+                                        {filters.length}
+                                    </div>
+                                )}
+                            </Button>
+                            <FiltersPanel open={filtersOpen} onClose={() => setFiltersOpen(false)} filters={filters} onFiltersChange={setFilters} onSaveAsPreset={() => setSavePresetOpen(true)} />
+                        </div>
+
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-8 w-8 bg-zinc-800/80 border-white/10 text-zinc-400 hover:text-zinc-200">
+                                    <Columns3 className="h-3.5 w-3.5" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[480px] bg-zinc-900 border-white/10 shadow-2xl p-0 overflow-hidden" align="end">
+                                <div className="flex items-center justify-between p-4 border-b border-white/10">
+                                    <h3 className="text-[12px] font-bold text-zinc-200">Column Visibility</h3>
+                                    <PopoverClose asChild>
+                                        <button className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/10 transition-colors">
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    </PopoverClose>
+                                </div>
+                                <div className="p-4 max-h-[500px] overflow-y-auto custom-scrollbar space-y-6">
+                                    {COLUMN_GROUPS.map((group, idx) => (
+                                        <div
+                                            key={group.title}
+                                            className={cn(
+                                                "space-y-3 pb-4",
+                                                idx < COLUMN_GROUPS.length - 1 && "border-b border-white/10"
+                                            )}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <h4 className="text-[10px] font-black text-zinc-500 tracking-widest">{group.title}</h4>
+                                                {group.showAll && (
+                                                    <button
+                                                        onClick={() => {
+                                                            const updates = { ...visibleColumns };
+                                                            group.columns.forEach(c => { if (!c.disabled) updates[c.key] = true; });
+                                                            setVisibleColumns(updates);
+                                                        }}
+                                                        className="text-[10px] font-bold text-amber-400 hover:underline"
+                                                    >
+                                                        Show All
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className={cn("gap-2 grid", group.showAll ? "grid-cols-7" : "grid-cols-3")}>
+                                                {group.columns.map((col: ColumnDef) => (
+                                                    <div key={col.key} className="flex items-center gap-2 bg-white/5 p-2 rounded hover:bg-white/10 transition-colors cursor-pointer group/col border border-white/5"
+                                                        onClick={() => !col.disabled && toggleColumn(col.key)}>
+                                                        <Checkbox
+                                                            checked={col.key === 'market' ? true : !!visibleColumns[col.key]}
+                                                            disabled={col.disabled}
+                                                            className="h-3.5 w-3.5 border-zinc-600 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+                                                        />
+                                                        <span className={cn("text-[11px] font-bold truncate",
+                                                            (col.key === 'market' || !!visibleColumns[col.key]) ? "text-zinc-200" : "text-zinc-500"
+                                                        )}>{col.label}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="p-4 bg-zinc-800/50 border-t border-white/10 flex items-center gap-2">
+                                    <Button
+                                        className="flex-1 h-8 bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-zinc-200"
+                                        onClick={() => {
+                                            const allCols: Record<string, boolean> = { market: true };
+                                            COLUMN_GROUPS.forEach(g => g.columns.forEach(c => {
+                                                if (!c.disabled) allCols[c.key] = true;
+                                            }));
+                                            setVisibleColumns(allCols);
+                                        }}
+                                    >
+                                        All
+                                    </Button>
+                                    <Button
+                                        className="flex-1 h-8 bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-zinc-200"
+                                        onClick={() => setVisibleColumns({ ...ORION_DEFAULT_COLUMNS })}
+                                    >
+                                        Defaults
+                                    </Button>
+                                    <Button
+                                        className="flex-1 h-8 bg-white/5 hover:bg-white/10 text-[11px] font-bold text-zinc-400 hover:text-zinc-200"
+                                        onClick={() => setVisibleColumns({ ...ORION_CORE_ONLY })}
+                                    >
+                                        Core Only
+                                    </Button>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+
+                        <div className="flex items-center border border-white/10 rounded overflow-hidden h-8">
+                            <Button variant="ghost" size="icon" className="h-full w-8 border-r border-white/10 text-zinc-500 bg-zinc-800/50 rounded-none hover:text-zinc-300">
+                                <LayoutGrid className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-full w-8 text-zinc-500 hover:text-zinc-200 rounded-none"
+                                onClick={onOpenAlerts}
+                            >
+                                <Bell className="h-3.5 w-3.5" />
+                            </Button>
+                        </div>
                     </div>
                 </div>
-            </div>
             )}
 
             <Dialog open={savePresetOpen} onOpenChange={setSavePresetOpen}>

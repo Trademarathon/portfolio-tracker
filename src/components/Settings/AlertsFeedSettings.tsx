@@ -31,37 +31,46 @@ export function AlertsFeedSettings() {
 
     return (
         <Card className="bg-card/50 backdrop-blur-xl border-border overflow-hidden">
-            <button onClick={() => setExpanded(!expanded)} className="w-full">
-                <CardHeader className="hover:bg-white/[0.02] transition-colors cursor-pointer">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400">
-                                <Rss size={18} />
-                            </div>
-                            <div className="text-left">
-                                <CardTitle className="text-base">Alerts Feed Widget</CardTitle>
-                                <CardDescription className="text-xs">
-                                    AI insights · Movement alerts · Order recommendations
-                                </CardDescription>
-                            </div>
+            <CardHeader
+                className="hover:bg-white/[0.02] transition-colors cursor-pointer"
+                role="button"
+                tabIndex={0}
+                onClick={() => setExpanded(!expanded)}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setExpanded((prev) => !prev);
+                    }
+                }}
+            >
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400">
+                            <Rss size={18} />
                         </div>
-                        <div className="flex items-center gap-3">
-                            <Switch
-                                checked={settings.enabled}
-                                onCheckedChange={(v) => update({ enabled: v })}
-                                onClick={(e) => e.stopPropagation()}
-                                className="data-[state=checked]:bg-cyan-500"
-                            />
-                            <ChevronDown
-                                className={cn(
-                                    "h-5 w-5 text-zinc-500 transition-transform",
-                                    expanded && "rotate-180"
-                                )}
-                            />
+                        <div className="text-left">
+                            <CardTitle className="text-base">Alerts Feed Widget</CardTitle>
+                            <CardDescription className="text-xs">
+                                AI insights · Movement alerts · Order recommendations
+                            </CardDescription>
                         </div>
                     </div>
-                </CardHeader>
-            </button>
+                    <div className="flex items-center gap-3">
+                        <Switch
+                            checked={settings.enabled}
+                            onCheckedChange={(v) => update({ enabled: v })}
+                            onClick={(e) => e.stopPropagation()}
+                            className="data-[state=checked]:bg-cyan-500"
+                        />
+                        <ChevronDown
+                            className={cn(
+                                "h-5 w-5 text-zinc-500 transition-transform",
+                                expanded && "rotate-180"
+                            )}
+                        />
+                    </div>
+                </div>
+            </CardHeader>
 
             {expanded && (
                 <CardContent className="space-y-6 pt-0 pb-6">

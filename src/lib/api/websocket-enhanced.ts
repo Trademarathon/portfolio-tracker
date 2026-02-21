@@ -4,6 +4,10 @@ import { WebSocketConnectionInfo, WebSocketMessage, WebSocketStatus, Reconnectio
 import { WalletWebSocketManager } from './websocket-wallet';
 import { WS_ENDPOINTS } from './websocket-endpoints';
 import CryptoJS from 'crypto-js';
+import {
+    getHyperliquidPerpsMetaAndCtxs,
+    getHyperliquidSpotMetaAndAssetCtxs
+} from './hyperliquid';
 
 type MessageHandler = (message: WebSocketMessage) => void;
 
@@ -56,6 +60,10 @@ export class EnhancedWebSocketManager {
     private walletManager: WalletWebSocketManager;
     private l2BookSubscriptions: Set<string> = new Set();
     private onMessage: MessageHandler;
+    private connectionReconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+    private manualDisconnect = false;
+    private disabledConnectionIds: Set<string> = new Set();
+    private universalStatsPollTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor(
         private connections: PortfolioConnection[],
@@ -80,6 +88,8 @@ export class EnhancedWebSocketManager {
 
     public async initialize() {
         console.log(`[WS Manager] Initializing... (Universal: ${this.universalMode})`);
+        this.manualDisconnect = false;
+        this.disabledConnectionIds.clear();
 
         // Only connect to enabled connections
         const enabledConnections = this.connections.filter(conn => conn.enabled !== false);
@@ -100,6 +110,8 @@ export class EnhancedWebSocketManager {
     }
 
     private async connectConnection(conn: PortfolioConnection) {
+        if (!this.shouldReconnect(conn.id)) return;
+        this.clearConnectionReconnectTimer(conn.id);
         this.updateConnectionStatus(conn.id, 'connecting');
 
         try {
@@ -146,6 +158,10 @@ export class EnhancedWebSocketManager {
         };
 
         this.connectionInfo.set(connectionId, info);
+        if (status === 'connected') {
+            info.reconnectAttempts = 0;
+            this.clearConnectionReconnectTimer(connectionId);
+        }
 
         // Notify status change
         if (this.onStatusChange) {
@@ -153,7 +169,24 @@ export class EnhancedWebSocketManager {
         }
     }
 
+    private shouldReconnect(connectionId: string): boolean {
+        if (this.manualDisconnect) return false;
+        if (this.disabledConnectionIds.has(connectionId)) return false;
+        return true;
+    }
+
+    private clearConnectionReconnectTimer(connectionId: string) {
+        const t = this.connectionReconnectTimers.get(connectionId);
+        if (t) {
+            clearTimeout(t);
+            this.connectionReconnectTimers.delete(connectionId);
+        }
+    }
+
     private scheduleReconnect(conn: PortfolioConnection) {
+        if (!this.shouldReconnect(conn.id)) return;
+        if (this.connectionReconnectTimers.has(conn.id)) return;
+
         const info = this.connectionInfo.get(conn.id);
         if (!info || info.reconnectAttempts >= this.reconnectConfig.maxAttempts) {
             console.log(`[WS Manager] Max reconnect attempts reached for ${conn.name}`);
@@ -171,9 +204,12 @@ export class EnhancedWebSocketManager {
         this.updateConnectionStatus(conn.id, 'reconnecting');
         this.connectionInfo.get(conn.id)!.reconnectAttempts = attempts;
 
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+            this.connectionReconnectTimers.delete(conn.id);
+            if (!this.shouldReconnect(conn.id)) return;
             this.connectConnection(conn);
         }, delay);
+        this.connectionReconnectTimers.set(conn.id, timer);
     }
 
     // --- BINANCE ---
@@ -206,7 +242,7 @@ export class EnhancedWebSocketManager {
                 ws.onclose = () => {
                     console.log(`[Binance Spot] Disconnected: ${conn.name}`);
                     this.updateConnectionStatus(conn.id, 'disconnected');
-                    this.scheduleReconnect(conn);
+                    if (this.shouldReconnect(conn.id)) this.scheduleReconnect(conn);
                 };
 
                 ws.onmessage = (event) => {
@@ -282,7 +318,7 @@ export class EnhancedWebSocketManager {
 
                 wsFutures.onclose = () => {
                     console.log(`[Binance Futures] Disconnected: ${conn.name}`);
-                    this.scheduleReconnect(conn);
+                    if (this.shouldReconnect(conn.id)) this.scheduleReconnect(conn);
                 };
 
                 wsFutures.onmessage = (event) => {
@@ -412,7 +448,7 @@ export class EnhancedWebSocketManager {
         ws.onclose = () => {
             console.log(`[Bybit] Disconnected: ${conn.name}`);
             this.updateConnectionStatus(conn.id, 'disconnected');
-            this.scheduleReconnect(conn);
+            if (this.shouldReconnect(conn.id)) this.scheduleReconnect(conn);
         };
 
         ws.onmessage = (event) => {
@@ -517,7 +553,7 @@ export class EnhancedWebSocketManager {
             console.log(`[Hyperliquid] Disconnected: ${conn.name}`);
             if (heartbeat) clearInterval(heartbeat);
             this.updateConnectionStatus(conn.id, 'disconnected');
-            this.scheduleReconnect(conn);
+            if (this.shouldReconnect(conn.id)) this.scheduleReconnect(conn);
         };
 
         ws.onmessage = (event) => {
@@ -533,19 +569,41 @@ export class EnhancedWebSocketManager {
                     timestamp: Date.now()
                 });
             } else if (msg.channel === 'userFills') {
-                const fills = msg.data as { isSnapshot?: boolean; fills?: Array<{ oid: number; coin: string; side: string; px: string; sz: string; time: number }> } | undefined;
+                const fills = msg.data as {
+                    isSnapshot?: boolean;
+                    fills?: Array<{
+                        hash?: string;
+                        tid?: number;
+                        oid?: number;
+                        coin?: string;
+                        side?: string;
+                        px?: string;
+                        sz?: string;
+                        time?: number;
+                        closedPnl?: string;
+                        fee?: string;
+                        feeToken?: string;
+                        crossed?: boolean;
+                        dir?: string;
+                    }>
+                } | undefined;
                 if (fills?.isSnapshot) {
                     // Initial snapshot
                 } else if (fills?.fills) {
                     const transactions = fills.fills.map((f: any) => ({
-                        id: f.oid.toString(),
+                        id: String(f.hash ?? f.tid ?? `${f.oid ?? 'na'}-${f.time ?? Date.now()}`),
                         symbol: f.coin,
                         side: f.side === 'B' ? 'buy' : 'sell',
                         price: parseFloat(f.px),
                         amount: parseFloat(f.sz),
                         timestamp: f.time,
                         exchange: 'Hyperliquid',
-                        status: 'closed'
+                        status: 'closed',
+                        pnl: parseFloat(f.closedPnl || '0'),
+                        fee: parseFloat(f.fee || '0'),
+                        feeCurrency: f.feeToken || 'USDC',
+                        takerOrMaker: f.crossed ? 'taker' : 'maker',
+                        notes: f.dir,
                     }));
 
                     this.onMessage({
@@ -571,6 +629,7 @@ export class EnhancedWebSocketManager {
     // --- UNIVERSAL HYPERLIQUID (Global Data) ---
     private async connectHyperliquidUniversal() {
         const socketId = 'hyperliquid_universal';
+        if (!this.shouldReconnect('universal')) return;
         if (this.sockets.has(socketId)) return;
 
         const ws = new WebSocket(WS_ENDPOINTS.hyperliquid.ws);
@@ -587,22 +646,20 @@ export class EnhancedWebSocketManager {
                 subscription: { type: 'allMids' }
             }));
 
-            // 2. Subscribe to Market Stats (webData2 for 24h stats/volume/funding)
-            // Note: 'webData2' is an internal channel but often used. 
-            // Alternatively use 'activeAssetCtx' for strictly Funding/OI/Impact
-            // Let's use 'webData2' as it typically has everything for the UI.
-            ws.send(JSON.stringify({
-                method: 'subscribe',
-                subscription: { type: 'webData2', user: '0x0000000000000000000000000000000000000000' }
-            }));
-
-            // 3. Resubscribe to existing L2 Book subscriptions
+            // 2. Resubscribe to existing L2 Book subscriptions
             this.l2BookSubscriptions.forEach(coin => {
                 ws.send(JSON.stringify({
                     method: 'subscribe',
                     subscription: { type: 'l2Book', coin }
                 }));
             });
+
+            // 3. Poll official info endpoints for market stats snapshots.
+            this.clearUniversalStatsPoll();
+            this.emitHyperliquidMarketStats().catch(() => { /* noop */ });
+            this.universalStatsPollTimer = setInterval(() => {
+                this.emitHyperliquidMarketStats().catch(() => { /* noop */ });
+            }, 20000);
 
             // Start Heartbeat
             heartbeat = setInterval(() => {
@@ -619,8 +676,15 @@ export class EnhancedWebSocketManager {
         ws.onclose = () => {
             console.log(`[Hyperliquid Universal] Disconnected`);
             if (heartbeat) clearInterval(heartbeat);
+            this.clearUniversalStatsPoll();
             this.sockets.delete(socketId);
-            setTimeout(() => this.connectHyperliquidUniversal(), 5000);
+            if (!this.shouldReconnect('universal')) return;
+            const timer = setTimeout(() => {
+                this.connectionReconnectTimers.delete('universal');
+                if (!this.shouldReconnect('universal')) return;
+                this.connectHyperliquidUniversal();
+            }, 5000);
+            this.connectionReconnectTimers.set('universal', timer);
         };
 
         ws.onmessage = (event) => {
@@ -634,15 +698,6 @@ export class EnhancedWebSocketManager {
                     connectionId: 'universal',
                     type: 'allMids',
                     data: msg.data.mids,
-                    timestamp: now
-                });
-            }
-            else if (msg.channel === 'webData2') {
-                this.onMessage({
-                    source: 'Hyperliquid',
-                    connectionId: 'universal',
-                    type: 'marketStats',
-                    data: msg.data,
                     timestamp: now
                 });
             }
@@ -666,8 +721,39 @@ export class EnhancedWebSocketManager {
         });
     }
 
+    private clearUniversalStatsPoll() {
+        if (this.universalStatsPollTimer) {
+            clearInterval(this.universalStatsPollTimer);
+            this.universalStatsPollTimer = null;
+        }
+    }
+
+    private async emitHyperliquidMarketStats() {
+        const [perps, spot] = await Promise.all([
+            getHyperliquidPerpsMetaAndCtxs(),
+            getHyperliquidSpotMetaAndAssetCtxs()
+        ]);
+
+        if (!perps && !spot) return;
+
+        this.onMessage({
+            source: 'Hyperliquid',
+            connectionId: 'universal',
+            type: 'marketStats',
+            data: {
+                meta: perps?.meta,
+                assetCtxs: perps?.ctxs,
+                spotMeta: spot?.meta,
+                spotAssetCtxs: spot?.ctxs,
+            },
+            timestamp: Date.now()
+        });
+    }
+
     public disconnect(connectionId?: string) {
         if (connectionId) {
+            this.disabledConnectionIds.add(connectionId);
+            this.clearConnectionReconnectTimer(connectionId);
             // Disconnect specific connection
             for (const [socketId, socket] of this.sockets.entries()) {
                 if (socket.connectionId === connectionId) {
@@ -687,8 +773,14 @@ export class EnhancedWebSocketManager {
             }
 
         } else {
+            this.manualDisconnect = true;
+            this.disabledConnectionIds.add('universal');
+            this.connections.forEach((conn) => this.disabledConnectionIds.add(conn.id));
+            this.connectionReconnectTimers.forEach((timer) => clearTimeout(timer));
+            this.connectionReconnectTimers.clear();
+            this.clearUniversalStatsPoll();
             // Disconnect all
-            for (const socketId of this.sockets.keys()) {
+            for (const socketId of Array.from(this.sockets.keys())) {
                 this.disconnectSocket(socketId);
             }
             this.walletManager.stopAll();
@@ -698,10 +790,13 @@ export class EnhancedWebSocketManager {
     private disconnectSocket(socketId: string) {
         const socket = this.sockets.get(socketId);
         if (socket) {
-            socket.ws.close();
             if (socket.keepAlive) clearInterval(socket.keepAlive);
             if (socket.reconnectTimer) clearTimeout(socket.reconnectTimer);
+            socket.ws.close();
             this.sockets.delete(socketId);
+            if (socketId === 'hyperliquid_universal') {
+                this.clearUniversalStatsPoll();
+            }
             console.log(`[WS Manager] Disconnected socket: ${socketId}`);
         }
     }

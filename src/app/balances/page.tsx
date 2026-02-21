@@ -2,7 +2,11 @@
 
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { formatCurrency, cn } from "@/lib/utils";
-import { Wallet, Layers, TrendingUp, TrendingDown, DollarSign, PieChart, Shield, Zap, RefreshCw, Search, Activity, BarChart3, Target, Receipt, X } from "lucide-react";
+import {
+    Wallet, Layers, TrendingUp, TrendingDown, DollarSign, PieChart, Shield, Zap,
+    RefreshCw, Search, Activity, BarChart3, Target, Receipt, X, Trophy, Skull,
+    ArrowUpRight, ArrowDownRight
+} from "lucide-react";
 import { PortfolioAllocation } from "@/components/Dashboard/PortfolioAllocation";
 import { AccountsOverview } from "@/components/Dashboard/AccountsOverview";
 import { StablecoinDeepDive } from "@/components/Dashboard/StablecoinDeepDive";
@@ -12,16 +16,19 @@ import { PageWrapper } from "@/components/Layout/PageWrapper";
 import Loading from "@/app/loading";
 import { SectionErrorBoundary } from "@/components/Dashboard/SectionErrorBoundary";
 import { HoldingsTable } from "@/components/Dashboard/HoldingsTable";
+import { SpotAssetCards } from "@/components/Dashboard/SpotAssetCards";
 import { Input } from "@/components/ui/input";
-import { useState, useMemo, memo, useRef, useEffect } from "react";
+import { useState, useMemo, memo, useRef, useEffect, useCallback } from "react";
 import { TokenIcon } from "@/components/ui/TokenIcon";
 import { calculatePortfolioAnalytics, calculateAssetAnalytics } from "@/lib/utils/analytics";
-import { NeuralAlphaFeed } from "@/components/Dashboard/NeuralAlphaFeed";
-import { useSocialFeed } from "@/hooks/useSocialFeed";
+import { GlobalAIFeed } from "@/components/Dashboard/GlobalAIFeed";
 import { StatCard } from "@/components/ui/StatCard";
 import dynamic from "next/dynamic";
 import { useAIInsight } from "@/lib/ai-orchestrator/hooks";
 import { AIPulseCard } from "@/components/Dashboard/AIPulseCard";
+import { AssetAIInsight } from "@/components/Dashboard/AssetAIInsight";
+import { useConnectorReliability } from "@/hooks/useConnectorReliability";
+import { DataReliabilityBar } from "@/components/ui/DataReliabilityBar";
 
 const OpenPositionsTable = dynamic(
     () => import("@/components/Dashboard/Overview/OpenPositionsTable").then((m) => ({ default: m.OpenPositionsTable })),
@@ -31,18 +38,18 @@ const OpenPositionsTable = dynamic(
 const STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "BUSD", "PYUSD", "FRAX", "TUSD", "USDE", "USDP", "GUSD"]);
 
 // Top Holdings Mini Card with Sparkline and Analytics
-const TopHoldingCard = memo(function TopHoldingCard({ 
-    symbol, 
-    value, 
-    percent, 
+const TopHoldingCard = memo(function TopHoldingCard({
+    symbol,
+    value,
+    percent,
     price: _price,
     balance,
     avgBuyPrice,
     unrealizedPnlPercent,
     buyCount
-}: { 
-    symbol: string; 
-    value: number; 
+}: {
+    symbol: string;
+    value: number;
     percent: number;
     price: number;
     balance: number;
@@ -62,35 +69,35 @@ const TopHoldingCard = memo(function TopHoldingCard({
             return base + wave + drift;
         });
     }, [symbol]);
-    
+
     // Draw sparkline
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas || priceData.length < 2) return;
-        
+
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        
+
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.offsetWidth;
         const height = 32;
-        
+
         canvas.width = width * dpr;
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, width, height);
-        
+
         const min = Math.min(...priceData);
         const max = Math.max(...priceData);
         const range = max - min || 1;
         const isUp = priceData[priceData.length - 1] >= priceData[0];
         const color = isUp ? "#34d399" : "#f87171";
-        
+
         // Gradient
         const gradient = ctx.createLinearGradient(0, 0, 0, height);
         gradient.addColorStop(0, `${color}15`);
         gradient.addColorStop(1, `${color}00`);
-        
+
         // Fill
         ctx.beginPath();
         ctx.moveTo(0, height);
@@ -103,7 +110,7 @@ const TopHoldingCard = memo(function TopHoldingCard({
         ctx.closePath();
         ctx.fillStyle = gradient;
         ctx.fill();
-        
+
         // Line
         ctx.beginPath();
         priceData.forEach((p, i) => {
@@ -116,10 +123,10 @@ const TopHoldingCard = memo(function TopHoldingCard({
         ctx.lineWidth = 1.5;
         ctx.stroke();
     }, [priceData]);
-    
+
     const hasTrades = (buyCount || 0) > 0;
     const pnlIsPositive = (unrealizedPnlPercent || 0) >= 0;
-    
+
     return (
         <div className="group relative flex flex-col gap-1.5 p-2.5 rounded-2xl bg-zinc-900/40 border border-white/[0.03] hover:border-cyan-500/20 transition-all cursor-pointer clone-wallet-card clone-noise">
             <div className="flex items-center gap-2.5">
@@ -127,7 +134,7 @@ const TopHoldingCard = memo(function TopHoldingCard({
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                         <span className="text-xs font-black text-white">{symbol}</span>
-                    <span className="text-[10px] font-mono font-bold text-zinc-200 font-balance-digital">{formatCurrency(value)}</span>
+                        <span className="text-[10px] font-mono font-bold text-zinc-200 font-balance-digital">{formatCurrency(value)}</span>
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                         <span className="text-[9px] text-zinc-600">{balance.toFixed(4)}</span>
@@ -135,12 +142,12 @@ const TopHoldingCard = memo(function TopHoldingCard({
                     </div>
                 </div>
             </div>
-            
+
             {/* Sparkline */}
             <div className="h-7 w-full rounded-md bg-black/25 border border-white/[0.04]">
                 <canvas ref={canvasRef} className="w-full h-full" />
             </div>
-            
+
             {/* Cost Basis Stats */}
             {hasTrades && (
                 <div className="flex items-center justify-between pt-1.5 border-t border-white/[0.03]">
@@ -165,15 +172,96 @@ const TopHoldingCard = memo(function TopHoldingCard({
     );
 });
 
+// Profit/Loss Highlight Card from Spot
+function PnLHighlightCard({
+    symbol,
+    label,
+    pnl,
+    pnlPercent,
+    avgPrice,
+    type,
+    onHighlight
+}: {
+    symbol: string;
+    label: string;
+    pnl: number;
+    pnlPercent: number;
+    avgPrice: number;
+    type: 'profit' | 'loss';
+    onHighlight: (symbol: string) => void;
+}) {
+    const isProfit = type === 'profit';
+
+    return (
+        <div className={cn(
+            "group relative flex items-center gap-3 p-3 rounded-xl border transition-all duration-300",
+            "hover:scale-[1.01] cursor-pointer clone-wallet-card clone-noise",
+            isProfit
+                ? "bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/10"
+                : "bg-gradient-to-r from-rose-500/10 via-rose-500/5 to-transparent border-rose-500/20 hover:shadow-lg hover:shadow-rose-500/10"
+        )}
+            onClick={() => onHighlight(symbol)}
+        >
+            <div className="relative">
+                <div className={cn(
+                    "absolute -top-1 -left-1 p-1 rounded-full border z-10",
+                    isProfit
+                        ? "bg-emerald-500/20 border-emerald-500/30"
+                        : "bg-rose-500/20 border-rose-500/30"
+                )}>
+                    {isProfit
+                        ? <Trophy className="h-2.5 w-2.5 text-emerald-400" />
+                        : <Skull className="h-2.5 w-2.5 text-rose-400" />
+                    }
+                </div>
+                <TokenIcon symbol={symbol} size={36} />
+            </div>
+
+            <div className="relative flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <span className={cn(
+                        "text-[9px] font-bold uppercase tracking-wider",
+                        isProfit ? "text-emerald-400" : "text-rose-400"
+                    )}>{label}</span>
+                    {isProfit
+                        ? <ArrowUpRight className="h-3 w-3 text-emerald-400" />
+                        : <ArrowDownRight className="h-3 w-3 text-rose-400" />
+                    }
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-white">{symbol}</span>
+                    <span className={cn(
+                        "text-xs font-mono font-bold",
+                        isProfit ? "text-emerald-400" : "text-rose-400"
+                    )}>
+                        {isProfit ? '+' : ''}{formatCurrency(pnl)}
+                    </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                    <span>Avg: {formatCurrency(avgPrice)}</span>
+                    <span className="text-zinc-600">•</span>
+                    <span className={cn(
+                        "font-bold",
+                        isProfit ? "text-emerald-400" : "text-rose-400"
+                    )}>
+                        {isProfit ? '+' : ''}{pnlPercent.toFixed(1)}%
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function BalancesPage() {
     const {
         assets,
         loading,
         connections,
+        wsConnectionStatus,
         hideDust,
         setHideDust,
         totalValue,
-        totalPnlUsd,
+        totalPnlUsd: _totalPnlUsd,
         totalPnlPercent: _totalPnlPercent,
         positions,
         transactions,
@@ -182,34 +270,45 @@ export default function BalancesPage() {
         triggerConnectionsRefetch,
         futuresMarketData,
     } = usePortfolio();
-    const assetsList = Array.isArray(assets) ? assets : [];
-    const socialItems = useSocialFeed({
-        symbols: assetsList.map((a) => a.symbol),
-        scope: "balances",
-    });
-    const connectionsList = Array.isArray(connections) ? connections : [];
+    const assetsList = useMemo(() => (Array.isArray(assets) ? assets : []), [assets]);
+    const [assetsSnapshot, setAssetsSnapshot] = useState<typeof assetsList>([]);
+    const connectionsList = useMemo(() => (Array.isArray(connections) ? connections : []), [connections]);
     const enabledConnectionsList = useMemo(
         () => connectionsList.filter(c => c.enabled !== false),
         [connectionsList]
     );
+    useEffect(() => {
+        if (assetsList.length > 0) {
+            setAssetsSnapshot(assetsList);
+        }
+    }, [assetsList]);
+
+    const usingSnapshot = assetsList.length === 0 && assetsSnapshot.length > 0;
+    const effectiveAssetsList = assetsList.length > 0 ? assetsList : assetsSnapshot;
+
     const [searchTerm, setSearchTerm] = useState("");
     const [refreshing, setRefreshing] = useState(false);
     const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
     const [selectedAccountChainIds, setSelectedAccountChainIds] = useState<string[] | undefined>(undefined);
+    const [aiAsset, setAiAsset] = useState<string | null>(null);
     const bootstrapRefetchedRef = useRef(false);
+
+    const handleHighlightAsset = useCallback((symbol: string) => {
+        setAiAsset(symbol);
+    }, []);
 
     // Filter assets by selected account (connection/widget)
     const displayAssetsRaw = useMemo(() => {
-        if (!selectedAccount || selectedAccount === 'All') return assetsList;
+        if (!selectedAccount || selectedAccount === 'All') return effectiveAssetsList;
 
-        const allBreakdownKeys = Array.from(new Set(assetsList.flatMap(a => Object.keys(a.breakdown || {}))));
+        const allBreakdownKeys = Array.from(new Set(effectiveAssetsList.flatMap(a => Object.keys(a.breakdown || {}))));
         const keys: string[] = selectedAccountChainIds?.length
             ? selectedAccountChainIds
             : allBreakdownKeys.filter(k => k === selectedAccount || k.startsWith(selectedAccount + '::'));
 
         if (keys.length === 0) return [];
 
-        return assetsList
+        return effectiveAssetsList
             .filter(asset => asset.breakdown && keys.some(k => (asset.breakdown![k] || 0) > 0))
             .map(asset => {
                 const balance = keys.reduce((sum, k) => sum + (asset.breakdown![k] || 0), 0);
@@ -220,7 +319,7 @@ export default function BalancesPage() {
                     allocations: 0
                 };
             });
-    }, [assetsList, selectedAccount, selectedAccountChainIds]);
+    }, [effectiveAssetsList, selectedAccount, selectedAccountChainIds]);
     const displayAssets = useMemo(() => {
         const viewTotal = displayAssetsRaw.reduce((sum, a) => sum + a.valueUsd, 0);
         return displayAssetsRaw.map(a => ({
@@ -267,21 +366,23 @@ export default function BalancesPage() {
         const stablecoinValue = displayAssets
             .filter(a => stablecoins.includes(a.symbol.toUpperCase()))
             .reduce((sum, a) => sum + a.valueUsd, 0);
-        
+
         const cryptoValue = viewTotal - stablecoinValue;
         const topAssets = [...displayAssets]
             .sort((a, b) => b.valueUsd - a.valueUsd)
             .slice(0, 5);
-            
+
         return {
             stablecoinValue,
             cryptoValue,
             stablecoinPercent: viewTotal > 0 ? (stablecoinValue / viewTotal) * 100 : 0,
             assetCount: displayAssets.filter(a => a.valueUsd > 1).length,
             topAssets,
-            viewTotal
+            viewTotal,
+            mostProfitable: [...Object.values(assetAnalyticsMap)].sort((a, b) => b.unrealizedPnl - a.unrealizedPnl)[0],
+            biggestLoss: [...Object.values(assetAnalyticsMap)].sort((a, b) => a.unrealizedPnl - b.unrealizedPnl)[0]
         };
-    }, [displayAssets]);
+    }, [displayAssets, assetAnalyticsMap]);
 
     const handleRefresh = () => {
         setRefreshing(true);
@@ -296,12 +397,12 @@ export default function BalancesPage() {
     useEffect(() => {
         if (bootstrapRefetchedRef.current) return;
         const hasEnabled = enabledConnectionsList.length > 0;
-        const hasAnyAssets = assetsList.length > 0;
+        const hasAnyAssets = effectiveAssetsList.length > 0;
         if (hasEnabled && !hasAnyAssets) {
             bootstrapRefetchedRef.current = true;
             triggerConnectionsRefetch?.();
         }
-    }, [enabledConnectionsList.length, assetsList.length, triggerConnectionsRefetch, assetsList, enabledConnectionsList]);
+    }, [enabledConnectionsList.length, effectiveAssetsList.length, triggerConnectionsRefetch]);
 
     const handleSelectAccount = (accountId: string, accountMeta?: { chainIds?: string[] }) => {
         setSelectedAccount(accountId);
@@ -316,28 +417,28 @@ export default function BalancesPage() {
         : stats.viewTotal;
 
     const stableStats = useMemo(() => {
-        const stableValue = assetsList.reduce((sum, asset) => {
+        const stableValue = effectiveAssetsList.reduce((sum, asset) => {
             if (!STABLE_SYMBOLS.has(asset.symbol)) return sum;
             return sum + (asset.valueUsd || 0);
         }, 0);
-        const total = totalValue || stats.viewTotal || 0;
+        const total = totalValue || stats.viewTotal || effectiveAssetsList.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
         return {
             stableValue,
             totalValue: total,
             stablePct: total > 0 ? (stableValue / total) * 100 : 0,
         };
-    }, [assetsList, totalValue, stats.viewTotal]);
+    }, [effectiveAssetsList, totalValue, stats.viewTotal]);
 
     const topHoldings = useMemo(() => {
-        return [...assetsList]
+        return [...effectiveAssetsList]
             .sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0))
             .slice(0, 5)
             .map((asset) => ({
                 symbol: asset.symbol,
                 valueUsd: asset.valueUsd || 0,
-                allocPct: totalValue ? (asset.valueUsd || 0) / totalValue * 100 : 0,
+                allocPct: stableStats.totalValue ? (asset.valueUsd || 0) / stableStats.totalValue * 100 : 0,
             }));
-    }, [assetsList, totalValue]);
+    }, [effectiveAssetsList, stableStats.totalValue]);
 
     const stableContext = useMemo(
         () => ({
@@ -352,12 +453,21 @@ export default function BalancesPage() {
     const { data: stableInsight, loading: stableInsightLoading } = useAIInsight(
         "balances_stablecoin_risk",
         stableContext,
-        [stableStats.stablePct, assetsList.length, totalValue],
+        [stableStats.stablePct, effectiveAssetsList.length, stableStats.totalValue],
         true,
         { stream: true }
     );
 
-    if (loading && assetsList.length === 0 && (connectionsList?.length ?? 0) === 0) {
+    const reliability = useConnectorReliability({
+        connections: enabledConnectionsList,
+        wsConnectionStatus,
+        connectionErrors,
+        loading,
+        dataPoints: effectiveAssetsList.length + positionsList.length,
+        usingSnapshot,
+    });
+
+    if (loading && effectiveAssetsList.length === 0 && (connectionsList?.length ?? 0) === 0) {
         return (
             <PageWrapper className="flex flex-col bg-background">
                 <div className="flex-1 flex items-center justify-center min-h-[50vh]">
@@ -376,304 +486,338 @@ export default function BalancesPage() {
                 </div>
             </PageWrapper>
         }>
-        <PageWrapper className="flex flex-col gap-4 px-4 md:px-6 lg:px-8 pt-4 pb-12 max-w-none w-full">
-            {/* Compact Header */}
-            <div className="tm-page-header clone-noise">
-                <div className="tm-page-header-main">
-                    <div className="tm-page-header-icon">
-                        <Wallet className="h-5 w-5 text-zinc-200" />
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h1 className="tm-page-title">Account Balances</h1>
-                            <div className="tm-live-pill">
-                                <div className="tm-live-pill-dot" />
-                                <span>LIVE</span>
-                            </div>
+            <PageWrapper className="flex flex-col gap-4 px-4 md:px-6 lg:px-8 pt-4 pb-12 max-w-none w-full">
+                {/* Compact Header */}
+                <div className="tm-page-header clone-noise">
+                    <div className="tm-page-header-main">
+                        <div className="tm-page-header-icon">
+                            <Wallet className="h-5 w-5 text-zinc-200" />
                         </div>
-                        <p className="tm-page-subtitle">{enabledConnectionsList.length} connected sources</p>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h1 className="tm-page-title">Account Balances</h1>
+                                <div className="tm-live-pill">
+                                    <div className="tm-live-pill-dot" />
+                                    <span>LIVE</span>
+                                </div>
+                            </div>
+                            <p className="tm-page-subtitle">{enabledConnectionsList.length} connected sources</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+                            <Input
+                                placeholder="Search..."
+                                className="w-[160px] pl-8 text-xs tm-toolbar-input"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            onClick={handleRefresh}
+                            className="p-2 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors tm-toolbar-input"
+                        >
+                            <RefreshCw className={cn("h-3.5 w-3.5 text-zinc-400", refreshing && "animate-spin")} />
+                        </button>
                     </div>
                 </div>
-                
-                <div className="flex items-center gap-2">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
-                        <Input
-                            placeholder="Search..."
-                            className="w-[160px] pl-8 text-xs tm-toolbar-input"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-                    <button 
-                        onClick={handleRefresh}
-                        className="p-2 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors tm-toolbar-input"
-                    >
-                        <RefreshCw className={cn("h-3.5 w-3.5 text-zinc-400", refreshing && "animate-spin")} />
-                    </button>
-                </div>
-            </div>
 
-            <AIPulseCard
-                title="Stablecoin Risk"
-                response={stableInsight}
-                loading={stableInsightLoading}
-            />
-
-            {/* Stats Grid - Enhanced with Cost Basis & PnL (Total Value includes spot + open perp PnL) */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-                <StatCard 
-                    label="Total Value" 
-                    value={formatCurrency(displayTotalValue)} 
-                    icon={DollarSign}
-                    color="cyan"
-                    variant="clean"
+                <DataReliabilityBar
+                    title="Balances Feed"
+                    summary={reliability}
+                    onRetry={triggerConnectionsRefetch}
                 />
-                {positionsList.length > 0 && (
-                    <StatCard 
-                        label="Futures PnL" 
-                        value={`${perpPnl >= 0 ? '+' : ''}${formatCurrency(perpPnl)}`}
-                        subValue={`${positionsList.length} position${positionsList.length !== 1 ? 's' : ''}`}
-                        icon={Activity}
-                        trend={perpPnl >= 0 ? 'up' : 'down'}
-                        color={perpPnl >= 0 ? 'emerald' : 'rose'}
+
+                <AIPulseCard
+                    title="Stablecoin Risk"
+                    response={stableInsight}
+                    loading={stableInsightLoading}
+                />
+
+                {/* Profit/Loss Leaders - From Spot */}
+                {(stats.mostProfitable?.unrealizedPnl > 0 || stats.biggestLoss?.unrealizedPnl < 0) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+                        {stats.mostProfitable && stats.mostProfitable.unrealizedPnl > 0 && (
+                            <PnLHighlightCard
+                                symbol={stats.mostProfitable.symbol}
+                                label="Top Profit"
+                                pnl={stats.mostProfitable.unrealizedPnl}
+                                pnlPercent={stats.mostProfitable.unrealizedPnlPercent}
+                                avgPrice={stats.mostProfitable.avgBuyPrice}
+                                type="profit"
+                                onHighlight={handleHighlightAsset}
+                            />
+                        )}
+                        {stats.biggestLoss && stats.biggestLoss.unrealizedPnl < 0 && (
+                            <PnLHighlightCard
+                                symbol={stats.biggestLoss.symbol}
+                                label="Biggest Loss"
+                                pnl={stats.biggestLoss.unrealizedPnl}
+                                pnlPercent={stats.biggestLoss.unrealizedPnlPercent}
+                                avgPrice={stats.biggestLoss.avgBuyPrice}
+                                type="loss"
+                                onHighlight={handleHighlightAsset}
+                            />
+                        )}
+                    </div>
+                )}
+
+                {/* Stats Grid - Enhanced with Cost Basis & PnL (Total Value includes spot + open perp PnL) */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+                    <StatCard
+                        label="Total Value"
+                        value={formatCurrency(displayTotalValue)}
+                        icon={DollarSign}
+                        color="cyan"
                         variant="clean"
                     />
-                )}
-                <StatCard 
-                    label="Cost Basis" 
-                    value={formatCurrency(portfolioAnalytics.totalCostBasis)}
-                    icon={Target}
-                    color="primary"
-                    variant="clean"
-                />
-                <StatCard 
-                    label="Unrealized PnL" 
-                    value={`${portfolioAnalytics.totalUnrealizedPnl >= 0 ? '+' : ''}${formatCurrency(portfolioAnalytics.totalUnrealizedPnl)}`}
-                    subValue={portfolioAnalytics.totalCostBasis > 0 
-                        ? `${((portfolioAnalytics.totalUnrealizedPnl / portfolioAnalytics.totalCostBasis) * 100).toFixed(1)}%` 
-                        : '—'}
-                    icon={portfolioAnalytics.totalUnrealizedPnl >= 0 ? TrendingUp : TrendingDown}
-                    trend={portfolioAnalytics.totalUnrealizedPnl >= 0 ? 'up' : 'down'}
-                    color={portfolioAnalytics.totalUnrealizedPnl >= 0 ? 'emerald' : 'rose'}
-                    variant="clean"
-                />
-                <StatCard 
-                    label="Realized PnL" 
-                    value={`${portfolioAnalytics.totalRealizedPnl >= 0 ? '+' : ''}${formatCurrency(portfolioAnalytics.totalRealizedPnl)}`}
-                    icon={Receipt}
-                    trend={portfolioAnalytics.totalRealizedPnl >= 0 ? 'up' : 'down'}
-                    color={portfolioAnalytics.totalRealizedPnl >= 0 ? 'emerald' : 'rose'}
-                    variant="clean"
-                />
-                <StatCard 
-                    label="Crypto" 
-                    value={formatCurrency(stats.cryptoValue)}
-                    subValue={`${(100 - stats.stablecoinPercent).toFixed(0)}%`}
-                    icon={BarChart3}
-                    color="amber"
-                    variant="clean"
-                />
-                <StatCard 
-                    label="Stablecoins" 
-                    value={formatCurrency(stats.stablecoinValue)}
-                    subValue={`${stats.stablecoinPercent.toFixed(0)}%`}
-                    icon={Shield}
-                    color="emerald"
-                    variant="clean"
-                />
-                <StatCard 
-                    label="Assets" 
-                    value={String(stats.assetCount)}
-                    icon={PieChart}
-                    color="primary"
-                    variant="clean"
-                />
-                <StatCard 
-                    label="Sources" 
-                    value={String(enabledConnectionsList.length)}
-                    icon={Zap}
-                    color="cyan"
-                    variant="clean"
-                />
-            </div>
-
-            {/* Main Content Grid */}
-            <div className="grid gap-4 lg:grid-cols-12">
-                {/* Left - Main Content */}
-                <div className="lg:col-span-9 space-y-4">
-                    {/* Accounts Overview */}
-                    <AccountsOverview
-                        assets={assetsList}
-                        connections={enabledConnectionsList}
-                        selectedAccount={selectedAccount || 'All'}
-                        onSelectAccount={handleSelectAccount}
-                        connectionErrors={connectionErrors ?? {}}
-                        onRetryConnection={triggerConnectionsRefetch}
-                    />
-
-                    {/* Open positions (same as Overview – so perp shows in Balances) */}
                     {positionsList.length > 0 && (
-                        <OpenPositionsTable
-                            positions={positionsList}
-                            marketData={futuresMarketData ?? {}}
+                        <StatCard
+                            label="Futures PnL"
+                            value={`${perpPnl >= 0 ? '+' : ''}${formatCurrency(perpPnl)}`}
+                            subValue={`${positionsList.length} position${positionsList.length !== 1 ? 's' : ''}`}
+                            icon={Activity}
+                            trend={perpPnl >= 0 ? 'up' : 'down'}
+                            color={perpPnl >= 0 ? 'emerald' : 'rose'}
+                            variant="clean"
                         />
                     )}
-
-                    {/* Allocation + Liquidity row */}
-                    <div className="grid gap-4 md:grid-cols-2">
-                        <PortfolioAllocation assets={displayAssets} />
-                        <StablecoinDeepDive assets={displayAssets} />
-                    </div>
-                    
-                    {/* Holdings Table */}
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between px-1">
-                            <div className="flex items-center gap-2">
-                                <Layers className="h-4 w-4 text-cyan-400" />
-                                <h2 className="text-sm font-black text-white uppercase tracking-wider">Asset Inventory</h2>
-                                {selectedAccount && selectedAccount !== 'All' && (
-                                    <button
-                                        onClick={() => handleSelectAccount('All')}
-                                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-bold hover:bg-cyan-500/20 transition-colors"
-                                    >
-                                        <span>Showing: {selectedAccount.startsWith('hw_') ? selectedAccount.replace('hw_', '').replace(/^[a-z]+_/, '') : enabledConnectionsList.find(c => c.id === selectedAccount)?.name || selectedAccount.slice(0, 8)}</span>
-                                        <X className="h-3 w-3" />
-                                    </button>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Switch
-                                    id="hide-dust"
-                                    checked={hideDust}
-                                    onCheckedChange={setHideDust}
-                                    className="scale-75"
-                                />
-                                <Label htmlFor="hide-dust" className="text-[9px] font-bold text-zinc-500 uppercase cursor-pointer">
-                                    Hide Dust
-                                </Label>
-                            </div>
-                        </div>
-                        <HoldingsTable assets={displayAssets} connections={enabledConnectionsList} />
-                    </div>
+                    <StatCard
+                        label="Cost Basis"
+                        value={formatCurrency(portfolioAnalytics.totalCostBasis)}
+                        icon={Target}
+                        color="primary"
+                        variant="clean"
+                    />
+                    <StatCard
+                        label="Unrealized PnL"
+                        value={`${portfolioAnalytics.totalUnrealizedPnl >= 0 ? '+' : ''}${formatCurrency(portfolioAnalytics.totalUnrealizedPnl)}`}
+                        subValue={portfolioAnalytics.totalCostBasis > 0
+                            ? `${((portfolioAnalytics.totalUnrealizedPnl / portfolioAnalytics.totalCostBasis) * 100).toFixed(1)}%`
+                            : '—'}
+                        icon={portfolioAnalytics.totalUnrealizedPnl >= 0 ? TrendingUp : TrendingDown}
+                        trend={portfolioAnalytics.totalUnrealizedPnl >= 0 ? 'up' : 'down'}
+                        color={portfolioAnalytics.totalUnrealizedPnl >= 0 ? 'emerald' : 'rose'}
+                        variant="clean"
+                    />
+                    <StatCard
+                        label="Realized PnL"
+                        value={`${portfolioAnalytics.totalRealizedPnl >= 0 ? '+' : ''}${formatCurrency(portfolioAnalytics.totalRealizedPnl)}`}
+                        icon={Receipt}
+                        trend={portfolioAnalytics.totalRealizedPnl >= 0 ? 'up' : 'down'}
+                        color={portfolioAnalytics.totalRealizedPnl >= 0 ? 'emerald' : 'rose'}
+                        variant="clean"
+                    />
+                    <StatCard
+                        label="Crypto"
+                        value={formatCurrency(stats.cryptoValue)}
+                        subValue={`${(100 - stats.stablecoinPercent).toFixed(0)}%`}
+                        icon={BarChart3}
+                        color="amber"
+                        variant="clean"
+                    />
+                    <StatCard
+                        label="Stablecoins"
+                        value={formatCurrency(stats.stablecoinValue)}
+                        subValue={`${stats.stablecoinPercent.toFixed(0)}%`}
+                        icon={Shield}
+                        color="emerald"
+                        variant="clean"
+                    />
+                    <StatCard
+                        label="Assets"
+                        value={String(stats.assetCount)}
+                        icon={PieChart}
+                        color="primary"
+                        variant="clean"
+                    />
+                    <StatCard
+                        label="Sources"
+                        value={String(enabledConnectionsList.length)}
+                        icon={Zap}
+                        color="cyan"
+                        variant="clean"
+                    />
                 </div>
 
-                {/* Right - Sidebar */}
-                <div className="lg:col-span-3 space-y-4">
-                    {/* Neural Alpha Feed */}
-                            <NeuralAlphaFeed
-                                compact
-                                additionalItems={socialItems}
-                                allowedTypes={[
-                                    "PLAYBOOK_PLAN_LEVELS",
-                                    "PLAYBOOK_COMPOSITE_TRIGGER",
-                                    "PLAYBOOK_VALUE_ACCEPTANCE",
-                                    "LEVEL_NO_ORDER_WARNING",
-                                    "PLAYBOOK_LEVEL_EXECUTED",
-                                    "PLAYBOOK_PLAN_COMPLETE",
-                                    "JOURNAL_REMINDER",
-                                    "PERP_STOPLOSS_REMINDER",
-                                    "SOCIAL_MENTION",
-                                ]}
+                {/* Main Content Grid */}
+                <div className="grid gap-4 lg:grid-cols-12">
+                    {/* Left - Main Content */}
+                    <div className="lg:col-span-9 space-y-4">
+                        {/* Accounts Overview */}
+                        <AccountsOverview
+                            assets={effectiveAssetsList}
+                            connections={enabledConnectionsList}
+                            selectedAccount={selectedAccount || 'All'}
+                            onSelectAccount={handleSelectAccount}
+                            connectionErrors={connectionErrors ?? {}}
+                            onRetryConnection={triggerConnectionsRefetch}
+                        />
+
+                        {/* Open positions (same as Overview – so perp shows in Balances) */}
+                        {positionsList.length > 0 && (
+                            <OpenPositionsTable
+                                positions={positionsList}
+                                marketData={futuresMarketData ?? {}}
                             />
-                    
-                    {/* Top Holdings */}
-                    <div className="p-4 tm-widget-card clone-wallet-card clone-noise">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Activity className="h-4 w-4 text-cyan-400" />
-                            <h3 className="text-xs font-black text-white uppercase tracking-wider">Top Holdings</h3>
+                        )}
+
+                        {/* Allocation + Liquidity row */}
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <PortfolioAllocation assets={displayAssets} />
+                            <StablecoinDeepDive assets={displayAssets} />
                         </div>
-                        <div className="space-y-2">
-                            {stats.topAssets.map((asset) => {
-                                const analytics = assetAnalyticsMap[asset.symbol];
-                                return (
-                                    <TopHoldingCard
-                                        key={asset.symbol}
-                                        symbol={asset.symbol}
-                                        value={asset.valueUsd}
-                                        percent={asset.allocations}
-                                        price={asset.price || 0}
-                                        balance={asset.balance}
-                                        avgBuyPrice={analytics?.avgBuyPrice}
-                                        unrealizedPnlPercent={analytics?.unrealizedPnlPercent}
-                                        buyCount={analytics?.buyCount}
+
+                        {/* Performance Cards - From Spot */}
+                        <SpotAssetCards assets={displayAssets} onSelectAsset={handleHighlightAsset} />
+
+                        {/* Holdings Table */}
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between px-1">
+                                <div className="flex items-center gap-2">
+                                    <Layers className="h-4 w-4 text-cyan-400" />
+                                    <h2 className="text-sm font-black text-white uppercase tracking-wider">Asset Inventory</h2>
+                                    {selectedAccount && selectedAccount !== 'All' && (
+                                        <button
+                                            onClick={() => handleSelectAccount('All')}
+                                            className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-bold hover:bg-cyan-500/20 transition-colors"
+                                        >
+                                            <span>Showing: {selectedAccount.startsWith('hw_') ? selectedAccount.replace('hw_', '').replace(/^[a-z]+_/, '') : enabledConnectionsList.find(c => c.id === selectedAccount)?.name || selectedAccount.slice(0, 8)}</span>
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Switch
+                                        id="hide-dust"
+                                        checked={hideDust}
+                                        onCheckedChange={setHideDust}
+                                        className="scale-75"
                                     />
-                                );
-                            })}
+                                    <Label htmlFor="hide-dust" className="text-[9px] font-bold text-zinc-500 uppercase cursor-pointer">
+                                        Hide Dust
+                                    </Label>
+                                </div>
+                            </div>
+                            <HoldingsTable assets={displayAssets} connections={enabledConnectionsList} />
                         </div>
                     </div>
 
-                    {/* Trading Activity */}
-                    <div className="p-4 tm-widget-card clone-wallet-card clone-noise">
-                        <h3 className="text-xs font-black text-white uppercase tracking-wider mb-3">Trading Activity</h3>
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-zinc-500">Total Trades</span>
-                                <span className="text-[10px] font-bold text-cyan-400">{portfolioAnalytics.totalTrades}</span>
+                    {/* Right - Sidebar */}
+                    <div className="lg:col-span-3 space-y-4">
+                        {/* Global AI Feed */}
+                        <GlobalAIFeed
+                            compact
+                            scope="balances"
+                            socialSymbols={effectiveAssetsList.map((a) => a.symbol)}
+                        />
+
+                        {/* Top Holdings */}
+                        <div className="p-4 tm-widget-card clone-wallet-card clone-noise">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Activity className="h-4 w-4 text-cyan-400" />
+                                <h3 className="text-xs font-black text-white uppercase tracking-wider">Top Holdings</h3>
                             </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-zinc-500">Win Rate</span>
-                                <span className={cn(
-                                    "text-[10px] font-bold",
-                                    portfolioAnalytics.winRate > 50 ? "text-emerald-400" : "text-amber-400"
-                                )}>
-                                    {portfolioAnalytics.winRate.toFixed(1)}%
-                                </span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                                <div 
-                                    className={cn(
-                                        "h-full rounded-full transition-all",
-                                        portfolioAnalytics.winRate > 60 ? "bg-emerald-500" : 
-                                        portfolioAnalytics.winRate > 40 ? "bg-amber-500" : "bg-rose-500"
-                                    )}
-                                    style={{ width: `${portfolioAnalytics.winRate}%` }}
-                                />
+                            <div className="space-y-2">
+                                {stats.topAssets.map((asset) => {
+                                    const analytics = assetAnalyticsMap[asset.symbol];
+                                    return (
+                                        <TopHoldingCard
+                                            key={asset.symbol}
+                                            symbol={asset.symbol}
+                                            value={asset.valueUsd}
+                                            percent={asset.allocations}
+                                            price={asset.price || 0}
+                                            balance={asset.balance}
+                                            avgBuyPrice={analytics?.avgBuyPrice}
+                                            unrealizedPnlPercent={analytics?.unrealizedPnlPercent}
+                                            buyCount={analytics?.buyCount}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
-                    </div>
 
-                    {/* Portfolio Health */}
-                    <div className="p-4 tm-widget-card clone-wallet-card clone-noise">
-                        <h3 className="text-xs font-black text-white uppercase tracking-wider mb-3">Portfolio Health</h3>
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-zinc-500">Diversification</span>
-                                <span className="text-[10px] font-bold text-emerald-400">
-                                    {stats.assetCount > 10 ? 'High' : stats.assetCount > 5 ? 'Medium' : 'Low'}
-                                </span>
+                        {/* Trading Activity */}
+                        <div className="p-4 tm-widget-card clone-wallet-card clone-noise">
+                            <h3 className="text-xs font-black text-white uppercase tracking-wider mb-3">Trading Activity</h3>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-zinc-500">Total Trades</span>
+                                    <span className="text-[10px] font-bold text-cyan-400">{portfolioAnalytics.totalTrades}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-zinc-500">Win Rate</span>
+                                    <span className={cn(
+                                        "text-[10px] font-bold",
+                                        portfolioAnalytics.winRate > 50 ? "text-emerald-400" : "text-amber-400"
+                                    )}>
+                                        {portfolioAnalytics.winRate.toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                                    <div
+                                        className={cn(
+                                            "h-full rounded-full transition-all",
+                                            portfolioAnalytics.winRate > 60 ? "bg-emerald-500" :
+                                                portfolioAnalytics.winRate > 40 ? "bg-amber-500" : "bg-rose-500"
+                                        )}
+                                        style={{ width: `${portfolioAnalytics.winRate}%` }}
+                                    />
+                                </div>
                             </div>
-                            <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                                <div 
-                                    className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full transition-all"
-                                    style={{ width: `${Math.min(stats.assetCount * 10, 100)}%` }}
-                                />
-                            </div>
-                            <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                                <span className="text-[10px] text-zinc-500">Stablecoin Buffer</span>
-                                <span className={cn(
-                                    "text-[10px] font-bold",
-                                    stats.stablecoinPercent > 20 ? "text-emerald-400" : 
-                                    stats.stablecoinPercent > 10 ? "text-amber-400" : "text-rose-400"
-                                )}>
-                                    {stats.stablecoinPercent.toFixed(1)}%
-                                </span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                                <div 
-                                    className={cn(
-                                        "h-full rounded-full transition-all",
-                                        stats.stablecoinPercent > 20 ? "bg-emerald-500" : 
-                                        stats.stablecoinPercent > 10 ? "bg-amber-500" : "bg-rose-500"
-                                    )}
-                                    style={{ width: `${Math.min(stats.stablecoinPercent * 2, 100)}%` }}
-                                />
+                        </div>
+
+                        {/* Portfolio Health */}
+                        <div className="p-4 tm-widget-card clone-wallet-card clone-noise">
+                            <h3 className="text-xs font-black text-white uppercase tracking-wider mb-3">Portfolio Health</h3>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-zinc-500">Diversification</span>
+                                    <span className="text-[10px] font-bold text-emerald-400">
+                                        {stats.assetCount > 10 ? 'High' : stats.assetCount > 5 ? 'Medium' : 'Low'}
+                                    </span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full transition-all"
+                                        style={{ width: `${Math.min(stats.assetCount * 10, 100)}%` }}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                    <span className="text-[10px] text-zinc-500">Stablecoin Buffer</span>
+                                    <span className={cn(
+                                        "text-[10px] font-bold",
+                                        stats.stablecoinPercent > 20 ? "text-emerald-400" :
+                                            stats.stablecoinPercent > 10 ? "text-amber-400" : "text-rose-400"
+                                    )}>
+                                        {stats.stablecoinPercent.toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                                    <div
+                                        className={cn(
+                                            "h-full rounded-full transition-all",
+                                            stats.stablecoinPercent > 20 ? "bg-emerald-500" :
+                                                stats.stablecoinPercent > 10 ? "bg-amber-500" : "bg-rose-500"
+                                        )}
+                                        style={{ width: `${Math.min(stats.stablecoinPercent * 2, 100)}%` }}
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </PageWrapper>
+
+                {/* AI Insight Modal from Spot */}
+                <AssetAIInsight
+                    symbol={aiAsset || ""}
+                    isOpen={!!aiAsset}
+                    onClose={() => setAiAsset(null)}
+                />
+            </PageWrapper>
         </SectionErrorBoundary>
     );
 }

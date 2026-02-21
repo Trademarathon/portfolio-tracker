@@ -353,7 +353,7 @@ export default function HowItWorksPage() {
               <p><strong className="text-foreground">Economic Calendar</strong> (Overview) — Real-time events so you’re not caught off guard.</p>
               <p><strong className="text-foreground">Global AI Feed</strong> (Overview + Markets) — Shows playbook levels per pair, journal reminders for unlogged trades, and stop-loss reminders for risky perp positions. Cards support dismiss and memory; alerts can notify you across channels.</p>
               <p><strong className="text-foreground">Trading Session</strong> (sidebar) — Which session is active (Asia, London, New York) and whether it’s overlap. Know when volume and volatility are typically higher.</p>
-              <p>Optional: enable crypto news (e.g. X) in Settings → General if you want headlines in one place.</p>
+              <p>Optional: enable social feed cards in Settings if you want extra headline context in one place.</p>
           </CardContent>
         </Card>
         </motion.section>

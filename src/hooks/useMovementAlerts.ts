@@ -67,17 +67,6 @@ export function useMovementAlerts(
         const out: AlphaSignalExport[] = [];
         const now = Date.now();
         const dedupeMs = settings.dedupeWindowMinutes * 60 * 1000;
-        const effective = {
-            ...settings,
-            // Make defaults practical in live use even when old strict values are persisted.
-            imminentMomentum: Math.min(settings.imminentMomentum, 45),
-            breakUp1h: Math.min(settings.breakUp1h, 0.6),
-            breakDown1h: Math.max(settings.breakDown1h, -0.6),
-            goingUp1h: Math.min(settings.goingUp1h, 0.2),
-            goingDown1h: Math.max(settings.goingDown1h, -0.2),
-            extreme24hUp: Math.min(settings.extreme24hUp, 5),
-            extreme24hDown: Math.max(settings.extreme24hDown, -5),
-        };
 
         const relevantSymbols = symbols.filter(
             (s) => s && isTrackableSymbol(s) && !STABLES.includes(s.toUpperCase())
@@ -91,11 +80,12 @@ export function useMovementAlerts(
                 BREAK_DOWN: "breakDown",
                 GOING_UP: "goingUp",
                 GOING_DOWN: "goingDown",
+                SUDDEN_VOLUME: "suddenVolume",
                 EXTREME_UP: "extremeUp",
                 EXTREME_DOWN: "extremeDown",
             };
-                const key = map[type];
-            return key ? effective.types[key] : true;
+            const key = map[type];
+            return key ? settings.types[key] : true;
         };
 
         for (const sym of relevantSymbols) {
@@ -146,7 +136,7 @@ export function useMovementAlerts(
                 if (out.length > before) emittedForSymbol = true;
             };
 
-            if (change24h > effective.extreme24hUp) {
+            if (change24h > settings.extreme24hUp) {
                 emit(
                     "EXTREME_UP",
                     `${sym} Extreme Up`,
@@ -155,7 +145,7 @@ export function useMovementAlerts(
                     "high"
                 );
             }
-            if (change24h < effective.extreme24hDown) {
+            if (change24h < settings.extreme24hDown) {
                 emit(
                     "EXTREME_DOWN",
                     `${sym} Extreme Down`,
@@ -165,7 +155,7 @@ export function useMovementAlerts(
                 );
             }
 
-            if (change1h > effective.breakUp1h) {
+            if (change1h > settings.breakUp1h) {
                 emit(
                     "BREAK_UP",
                     `${sym} Breaks Up`,
@@ -174,7 +164,7 @@ export function useMovementAlerts(
                     change1h > 3 ? "high" : "medium"
                 );
             }
-            if (change1h < effective.breakDown1h) {
+            if (change1h < settings.breakDown1h) {
                 emit(
                     "BREAK_DOWN",
                     `${sym} Breaks Down`,
@@ -184,7 +174,7 @@ export function useMovementAlerts(
                 );
             }
 
-            if (change1h > effective.goingUp1h && change1h <= effective.breakUp1h) {
+            if (change1h > settings.goingUp1h && change1h <= settings.breakUp1h) {
                 emit(
                     "GOING_UP",
                     `${sym} Going Up`,
@@ -192,7 +182,7 @@ export function useMovementAlerts(
                     Math.min(Math.round(change1h * 25), 99)
                 );
             }
-            if (change1h < effective.goingDown1h && change1h >= effective.breakDown1h) {
+            if (change1h < settings.goingDown1h && change1h >= settings.breakDown1h) {
                 emit(
                     "GOING_DOWN",
                     `${sym} Going Down`,
@@ -201,7 +191,7 @@ export function useMovementAlerts(
                 );
             }
 
-            if (mom > effective.imminentMomentum) {
+            if (mom > settings.imminentMomentum) {
                 emit(
                     "IMMINENT_MOVEMENT",
                     `${sym} Imminent Movement`,
@@ -222,8 +212,8 @@ export function useMovementAlerts(
                 );
             }
 
-            // Baseline fallback so widget doesn't stay empty for long periods.
-            if (!emittedForSymbol && Math.abs(change24h) >= 1.2) {
+            // Optional baseline trend fallback for low-volatility phases.
+            if (settings.baselineTrendFallback && !emittedForSymbol && Math.abs(change24h) >= 1.2) {
                 if (change24h > 0) {
                     emit(
                         "GOING_UP",

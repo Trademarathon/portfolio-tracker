@@ -147,7 +147,7 @@ export function PlaybookDedicatedFeed({
 }) {
     const { user, cloudSyncEnabled } = useSupabaseAuth();
     const { assets } = usePortfolio();
-    const screener = useScreenerData({ live: false, enableRestFallback: false });
+    const screener = useScreenerData({ live: false, enableRestFallback: false, fetchMarkets: false });
     const [executedOrders, setExecutedOrders] = useState<ExecutedOrder[]>([]);
     const [blockedEvents, setBlockedEvents] = useState<BlockedRuleEvent[]>([]);
 

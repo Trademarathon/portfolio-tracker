@@ -18,6 +18,9 @@ export interface Position {
     side: 'long' | 'short';
     leverage?: number;
     liquidationPrice?: number;
+    connectionId?: string;
+    exchange?: string;
+    marketType?: 'spot' | 'perp' | 'future';
 }
 
 export type AssetSector = 'L1' | 'DeFi' | 'AI' | 'Meme' | 'Gaming' | 'Infra' | 'Stablecoin' | 'Other';
@@ -32,7 +35,7 @@ export interface ExchangeTicker {
 export interface Transaction {
     id: string;
     symbol: string;
-    side: 'buy' | 'sell';
+    side: 'buy' | 'sell' | 'funding' | 'transfer';
     type?: 'Buy' | 'Sell'; // some APIs return capitalized
     asset?: string; // sometimes distinct from symbol
     price: number;
@@ -54,9 +57,15 @@ export interface Transaction {
     feeUsd?: number;
     quoteAsset?: string;
     sourceType?: 'cex' | 'dex' | 'wallet' | 'manual';
+    marketType?: 'spot' | 'perp' | 'future' | 'funding';
     estimatedBasis?: boolean;
     connectionId?: string;
     chain?: string;
+    instrumentType?: 'stock' | 'future' | 'crypto' | 'option' | 'other';
+    optionType?: 'call' | 'put';
+    strike?: number;
+    expiration?: number; // unix ms
+    dte?: number; // days till expiration
 }
 
 export interface Transfer {

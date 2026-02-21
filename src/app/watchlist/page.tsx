@@ -27,7 +27,7 @@ import { ExchangeIcon } from "@/components/ui/ExchangeIcon";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { AlertsSidebar } from "@/components/Screener/AlertsSidebar";
 import { PageWrapper } from "@/components/Layout/PageWrapper";
-import { FinancialTable } from "@/components/ui/financial-markets-table";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProToolsInterface } from "@/components/Screener/ProToolsInterface";
 
@@ -66,11 +66,11 @@ function ScreenerContent() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isChartVisible, setIsChartVisible] = useState(false);
     const [exchangeFilter, setExchangeFilter] = useState<string>("all");
-    const [useBuiltInChart, setUseBuiltInChart] = useState(true);
+    const [useBuiltInChart, setUseBuiltInChart] = useState(false);
     const [chartTimeframe, setChartTimeframe] = useState<'5m' | '15m' | '1h' | '4h' | '1d'>('5m');
     const [chartAutoFallback, setChartAutoFallback] = useState(false);
     const [isChartCompact, setIsChartCompact] = useState(true);
-    const [marketViewMode, setMarketViewMode] = useState<"crypto" | "indices">("crypto");
+
 
     const marketStats = useMemo(() => {
         const totalVol = (tickersList || []).reduce((acc, t) => acc + (t.volume24h || 0), 0);
@@ -147,6 +147,8 @@ function ScreenerContent() {
             setSelectedSymbol(symbol);
             setIsChartVisible(true);
             setChartAutoFallback(false);
+            setUseBuiltInChart(false);
+            setIsChartCompact(true);
         }
     };
 
@@ -288,17 +290,7 @@ function ScreenerContent() {
                                                 </button>
                                             );
                                         })}
-                                        <button
-                                            onClick={() => setMarketViewMode((v) => (v === "crypto" ? "indices" : "crypto"))}
-                                            className={cn(
-                                                "tm-market-filter-btn ml-1 flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all border",
-                                                marketViewMode === "indices"
-                                                    ? "bg-cyan-500/20 text-cyan-200 border-cyan-500/30"
-                                                    : "bg-transparent text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-white/5"
-                                            )}
-                                        >
-                                            {marketViewMode === "indices" ? "CRYPTO VIEW" : "INDICES VIEW"}
-                                        </button>
+
                                     </div>
                                     <div className="h-4 w-px bg-white/10 hidden md:block" />
                                     <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
@@ -353,41 +345,35 @@ function ScreenerContent() {
                                 <div className="flex-1 flex flex-col overflow-hidden min-w-0">
                                     <div className="flex-1 min-h-0 flex flex-col w-full transition-all duration-300 ease-out">
                                         <div className="flex-1 flex flex-col overflow-hidden w-full min-w-0">
-                                            {marketViewMode === "crypto" ? (
-                                                <MarketTable
-                                                    onSelect={handleSelectSymbol}
-                                                    selectedSymbol={selectedSymbol || ""}
-                                                    onOpenAlerts={() => setIsSidebarOpen(true)}
-                                                    exchangeFilter={exchangeFilter === "tradfi" ? "all" : exchangeFilter}
-                                                    isConnecting={!isConnected}
-                                                    tickersOverride={exchangeFilter === "tradfi" ? tradeFiTickers : undefined}
-                                                    aiInsightSymbols={aiInsightSymbols}
-                                                    onToggleAiInsight={toggleAiInsight}
-                                                />
-                                            ) : (
-                                                <div className="h-full overflow-auto bg-zinc-950 p-4">
-                                                    <FinancialTable title="Index" />
-                                                </div>
-                                            )}
+                                            <MarketTable
+                                                onSelect={handleSelectSymbol}
+                                                selectedSymbol={selectedSymbol || ""}
+                                                onOpenAlerts={() => setIsSidebarOpen(true)}
+                                                exchangeFilter={exchangeFilter === "tradfi" ? "all" : exchangeFilter}
+                                                isConnecting={!isConnected}
+                                                tickersOverride={exchangeFilter === "tradfi" ? tradeFiTickers : tickersList}
+                                                aiInsightSymbols={aiInsightSymbols}
+                                                onToggleAiInsight={toggleAiInsight}
+                                            />
                                         </div>
                                     </div>
 
                                     <div className={cn(
                                         "tm-market-chart-shell flex flex-col border-t border-white/5 transition-all duration-300 ease-out overflow-hidden",
-                                        marketViewMode === "crypto" && isChartVisible && selectedSymbol
+                                        isChartVisible && selectedSymbol
                                             ? isChartCompact
-                                                ? "h-[206px] min-h-[206px] max-h-[206px] shrink-0"
+                                                ? "h-[330px] min-h-[330px] shrink-0 shadow-[0_-12px_44px_-10px_rgb(0,0,0,0.8)] z-20 border-t border-indigo-500/30 relative"
                                                 : "h-[44%] min-h-[280px] max-h-[500px] shrink-0"
                                             : "h-0"
                                     )}>
                                         {isChartVisible && selectedSymbol && (
                                             <>
                                                 <div className={cn(
-                                                    "tm-market-chart-header border-b border-white/8 flex items-center justify-between shrink-0",
-                                                    isChartCompact ? "px-2.5 py-1.5" : "px-3 py-2"
+                                                    "tm-market-chart-header border-b border-white/5 flex items-center justify-between shrink-0 bg-zinc-950/80 backdrop-blur-md",
+                                                    isChartCompact ? "px-4 py-2" : "px-3 py-2"
                                                 )}>
                                                     <div className="flex items-center gap-2.5 min-w-0">
-                                                        <span className="text-[11px] font-bold font-mono tracking-tight text-zinc-200 bg-white/10 px-2 py-1 rounded-md border border-white/10">
+                                                        <span className="text-[12px] font-black font-mono tracking-tight text-white bg-indigo-500/20 px-3 py-1 rounded-lg border border-indigo-500/30">
                                                             {chartLabel}
                                                         </span>
                                                         <div className={cn(
@@ -422,15 +408,19 @@ function ScreenerContent() {
                                                             >
                                                                 Built-in
                                                             </button>
-                                                            <span className="text-white/20 hidden xl:inline">|</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setUseBuiltInChart(false)}
-                                                                className={cn("tm-market-chart-mode px-2 py-1 rounded-md inline-flex items-center gap-1.5 border border-transparent", !useBuiltInChart ? "bg-white/10 text-zinc-200 border-white/15" : "text-zinc-500 hover:text-zinc-300")}
-                                                            >
-                                                                <BrandLogo brand="tradingview" size={12} />
-                                                                TradingView
-                                                            </button>
+                                                            {!isChartCompact && (
+                                                                <>
+                                                                    <span className="text-white/20 hidden xl:inline">|</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setUseBuiltInChart(false)}
+                                                                        className={cn("tm-market-chart-mode px-2 py-1 rounded-md inline-flex items-center gap-1.5 border border-transparent", !useBuiltInChart ? "bg-white/10 text-zinc-200 border-white/15" : "text-zinc-500 hover:text-zinc-300")}
+                                                                    >
+                                                                        <BrandLogo brand="tradingview" size={12} />
+                                                                        TradingView
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                             <span className={cn("text-white/20 hidden 2xl:inline", isChartCompact && "hidden")} >|</span>
                                                             <span className={cn("hidden 2xl:inline-flex items-center gap-2", isChartCompact && "hidden")}>
                                                                 <BrandLogo brand="binance" size={12} />
@@ -480,6 +470,7 @@ function ScreenerContent() {
                                                             Select a symbol to view chart
                                                         </div>
                                                     )}
+                                                    <div className="absolute inset-0 bg-indigo-500/5 blur-3xl rounded-full opacity-50 -z-10" />
                                                 </div>
                                             </>
                                         )}

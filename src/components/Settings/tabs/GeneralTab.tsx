@@ -82,7 +82,7 @@ export function GeneralTab({ isDemoMode, toggleDemoMode, autoRefresh, setAutoRef
                         Integrations
                     </CardTitle>
                     <CardDescription>
-                        X, Discord, Telegram and AI provider credentials are now managed in the Security tab for a single integration workflow.
+                        Discord, Telegram and AI provider credentials are managed in the Security tab for a single integration workflow.
                     </CardDescription>
                 </CardHeader>
             </Card>

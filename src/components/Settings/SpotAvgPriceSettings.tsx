@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { useSpotAvgPriceRange } from "@/hooks/useSpotAvgPriceRange";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, CalendarDays, Clock3 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { calculateAssetAnalytics } from "@/lib/utils/analytics";
 
@@ -60,61 +60,77 @@ export function SpotAvgPriceSettings() {
     }, [assets, transactions, transfers, fromDate, fromTime, toDate, toTime]);
 
     return (
-        <Card className="bg-card/50 backdrop-blur-xl border-border">
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                    <BarChart3 className="h-4 w-4 text-indigo-400" />
+        <Card className="tm-pref-card border-white/12 bg-transparent shadow-none">
+            <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2.5 text-base text-zinc-100">
+                    <span className="tm-pref-title-icon">
+                        <BarChart3 className="h-4 w-4 text-sky-300" />
+                    </span>
                     Spot orders – average price
                 </CardTitle>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-zinc-400">
                     Set a custom date and time range to compute the volume-weighted average price (VWAP) of your spot orders in that period.
                 </p>
             </CardHeader>
             <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">From (date & time)</label>
-                        <input
-                            type="date"
-                            value={fromDate}
-                            onChange={(e) => setRange({ fromDate: e.target.value, fromTime, toDate, toTime })}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-indigo-500/50 outline-none"
-                        />
-                        <input
-                            type="time"
-                            value={fromTime}
-                            onChange={(e) => setRange({ fromDate, fromTime: e.target.value, toDate, toTime })}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-indigo-500/50 outline-none"
-                        />
+                        <label className="tm-pref-label">From (date & time)</label>
+                        <div className="relative">
+                            <input
+                                type="date"
+                                value={fromDate}
+                                onChange={(e) => setRange({ fromDate: e.target.value, fromTime, toDate, toTime })}
+                                className="tm-pref-input tm-pref-input--tight pr-10"
+                            />
+                            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                        </div>
+                        <div className="relative">
+                            <input
+                                type="time"
+                                value={fromTime}
+                                onChange={(e) => setRange({ fromDate, fromTime: e.target.value, toDate, toTime })}
+                                className="tm-pref-input tm-pref-input--tight pr-10"
+                            />
+                            <Clock3 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                        </div>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">To (date & time)</label>
-                        <input
-                            type="date"
-                            value={toDate}
-                            onChange={(e) => setRange({ fromDate, fromTime, toDate: e.target.value, toTime })}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-indigo-500/50 outline-none"
-                        />
-                        <input
-                            type="time"
-                            value={toTime}
-                            onChange={(e) => setRange({ fromDate, fromTime, toDate, toTime: e.target.value })}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-indigo-500/50 outline-none"
-                        />
+                        <label className="tm-pref-label">To (date & time)</label>
+                        <div className="relative">
+                            <input
+                                type="date"
+                                value={toDate}
+                                onChange={(e) => setRange({ fromDate, fromTime, toDate: e.target.value, toTime })}
+                                className="tm-pref-input tm-pref-input--tight pr-10"
+                            />
+                            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                        </div>
+                        <div className="relative">
+                            <input
+                                type="time"
+                                value={toTime}
+                                onChange={(e) => setRange({ fromDate, fromTime, toDate, toTime: e.target.value })}
+                                className="tm-pref-input tm-pref-input--tight pr-10"
+                            />
+                            <Clock3 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                        </div>
                     </div>
                 </div>
                 {(Array.isArray(transactions) ? transactions.length : 0) === 0 ? (
-                    <p className="text-xs text-zinc-500">No trade history available yet. Connect exchanges/wallets to compute unified average price.</p>
+                    <p className="text-xs text-zinc-500">
+                        No trade history available yet. Connect exchanges/wallets to compute unified average price.
+                    </p>
                 ) : count === 0 ? (
                     <p className="text-xs text-zinc-500">No buys found in the selected date/time range. Adjust From/To.</p>
                 ) : rangeAvgPrice != null ? (
-                    <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-                        <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-1">Range average buy price (ledger)</p>
-                        <p className="text-xl font-bold text-indigo-300">{formatCurrency(rangeAvgPrice)}</p>
-                        <p className="text-[10px] text-zinc-500 mt-1">
+                    <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/6 p-3.5">
+                        <p className="tm-pref-label mb-1">Range average buy price (ledger)</p>
+                        <p className="text-lg font-semibold text-cyan-200">{formatCurrency(rangeAvgPrice)}</p>
+                        <p className="mt-1 text-[11px] text-zinc-400">
                             {count} buy trade{count !== 1 ? "s" : ""} · Total value {formatCurrency(totalValue)} · Total qty {totalQty.toFixed(6)}
                         </p>
-                        <p className="text-[10px] text-zinc-500 mt-1">
+                        <p className="mt-1 text-[11px] text-zinc-400">
                             Lifetime average buy: {lifetimeAvgPrice != null ? formatCurrency(lifetimeAvgPrice) : "—"}
                         </p>
                     </div>

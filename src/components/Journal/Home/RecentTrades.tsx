@@ -60,6 +60,11 @@ function TradeRow({ trade }: { trade: JournalTrade }) {
         return `${prefix}$${Math.abs(value).toFixed(2)}`;
     };
 
+    const mae = Number(trade.mae);
+    const mfe = Number(trade.mfe);
+    const hasMae = Number.isFinite(mae) && Math.abs(mae) > 0;
+    const hasMfe = Number.isFinite(mfe) && Math.abs(mfe) > 0;
+
     return (
         <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -126,12 +131,12 @@ function TradeRow({ trade }: { trade: JournalTrade }) {
 
                 {/* MAE */}
                 <div className="col-span-1 text-xs text-zinc-400">
-                    {trade.mae ? formatPrice(trade.mae) : "$0.00"}
+                    {hasMae ? formatPrice(Math.abs(mae)) : "N/A"}
                 </div>
 
                 {/* MFE */}
                 <div className="col-span-1 text-xs text-zinc-400">
-                    {trade.mfe ? formatPrice(trade.mfe) : "$0.00"}
+                    {hasMfe ? formatPrice(Math.abs(mfe)) : "N/A"}
                 </div>
 
                 {/* PnL */}

@@ -1,9 +1,51 @@
 "use client";
 
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useJournal } from '@/contexts/JournalContext';
 import { useJournalWebSocket } from '@/hooks/useJournalWebSocket';
 import { usePlaybookAlerts } from '@/hooks/usePlaybookAlerts';
+import { normalizeSymbol } from '@/lib/utils/normalization';
+
+function toMs(value: unknown): number {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return Date.now();
+    if (n > 1e17) return Math.round(n / 1_000_000);
+    if (n > 1e14) return Math.round(n / 1_000);
+    if (n < 1e12) return Math.round(n * 1_000);
+    return Math.round(n);
+}
+
+function toNumber(value: unknown): number | undefined {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+}
+
+function toStringId(...values: unknown[]): string | undefined {
+    for (const value of values) {
+        if (value === null || value === undefined) continue;
+        const s = String(value).trim();
+        if (s) return s;
+    }
+    return undefined;
+}
+
+function buildFallbackId(
+    prefix: string,
+    exchange: unknown,
+    symbol: unknown,
+    side: unknown,
+    price: unknown,
+    amount: unknown,
+    timestamp: unknown
+): string {
+    const ex = String(exchange || 'unknown').toLowerCase().replace(/[^a-z0-9._-]+/gi, '_');
+    const sym = normalizeSymbol(String(symbol || '')).replace(/[^A-Z0-9._-]+/g, '_');
+    const sd = String(side || 'buy').toLowerCase();
+    const px = (toNumber(price) ?? 0).toFixed(10);
+    const qty = (toNumber(amount) ?? 0).toFixed(10);
+    const ts = toMs(timestamp);
+    return `${prefix}-${ex}-${sym}-${sd}-${px}-${qty}-${ts}`;
+}
 
 /**
  * Component that integrates the Journal with real-time WebSocket updates.
@@ -16,7 +58,7 @@ export function JournalWebSocketIntegration() {
     useJournalWebSocket();
     
     // Initialize playbook alerts monitoring
-    const { isMonitoring, activeSymbols } = usePlaybookAlerts();
+    const { isMonitoring, activeSymbols: _activeSymbols } = usePlaybookAlerts();
     
     // Listen for portfolio data updates and forward to journal
     useEffect(() => {
@@ -26,12 +68,32 @@ export function JournalWebSocketIntegration() {
         const handlePositionUpdate = (event: CustomEvent) => {
             const position = event.detail;
             if (position?.status === 'closed' || position?.size === 0) {
+                const timestamp = toMs(position.closeTime || position.updatedAt || position.timestamp || Date.now());
+                const symbol = normalizeSymbol(position.symbol || '');
+                if (!symbol) return;
+                const id = toStringId(
+                    position.tradeId,
+                    position.id,
+                    position.positionId,
+                    buildFallbackId(
+                        'pos',
+                        position.exchange,
+                        symbol,
+                        position.side,
+                        position.exitPrice || position.price,
+                        position.closedSize || position.size || position.amount,
+                        timestamp
+                    )
+                )!;
+
                 // Position was closed - might indicate a completed trade
                 window.dispatchEvent(new CustomEvent('journal-trade-update', { 
                     detail: {
-                        id: position.id,
-                        symbol: position.symbol,
-                        realizedPnl: position.realizedPnl || position.pnl,
+                        id,
+                        symbol,
+                        exchange: position.exchange || 'unknown',
+                        timestamp,
+                        realizedPnl: toNumber(position.realizedPnl ?? position.pnl) ?? 0,
                         status: 'closed',
                     }
                 }));
@@ -42,17 +104,34 @@ export function JournalWebSocketIntegration() {
         const handleOrderFill = (event: CustomEvent) => {
             const order = event.detail;
             if (order?.status === 'filled' || order?.status === 'closed') {
+                const symbol = normalizeSymbol(order.symbol || '');
+                const price = toNumber(order.avgPrice ?? order.price);
+                const amount = toNumber(order.qty ?? order.amount);
+                if (!symbol || !price || price <= 0 || !amount || amount <= 0) return;
+                const timestamp = toMs(order.timestamp || order.time || Date.now());
+                const exchange = String(order.exchange || 'unknown');
+                const side = String(order.side || '').toLowerCase() === 'buy' ? 'buy' : 'sell';
+                const id = toStringId(
+                    order.tradeId,
+                    order.execId,
+                    order.fillId,
+                    order.id,
+                    order.orderId,
+                    buildFallbackId('ord', exchange, symbol, side, price, amount, timestamp)
+                )!;
+
                 window.dispatchEvent(new CustomEvent('journal-new-trade', { 
                     detail: {
-                        id: order.id || order.orderId,
-                        symbol: order.symbol,
-                        side: order.side,
-                        price: order.avgPrice || order.price,
-                        amount: order.qty || order.amount,
-                        timestamp: order.timestamp || Date.now(),
-                        exchange: order.exchange || 'unknown',
+                        id,
+                        symbol,
+                        side,
+                        price,
+                        amount,
+                        timestamp,
+                        exchange,
                         status: 'closed',
-                        realizedPnl: order.realizedPnl || 0,
+                        realizedPnl: toNumber(order.realizedPnl) ?? 0,
+                        fees: Math.abs(toNumber(order.fee ?? order.fees) ?? 0),
                     }
                 }));
             }
@@ -128,7 +207,7 @@ export function JournalWebSocketIntegration() {
         };
         
         const handleAlertTriggered = (event: CustomEvent) => {
-            const { alert, message } = event.detail;
+            const { alert: _alert, message } = event.detail;
             
             // You could integrate with a toast library here
             console.log('[Journal] Alert triggered:', message);

@@ -8,6 +8,7 @@ import {
     AlertChannel,
     AlertPriority,
     DEFAULT_ALERT_SETTINGS,
+    ALERTS_STORAGE_KEY,
     loadAlerts,
     saveAlerts,
     loadAlertSettings,
@@ -17,7 +18,6 @@ import {
     ALERT_SETTINGS_KEY,
     formatAlertMessage,
     isInQuietHours,
-    PRIORITY_CONFIG,
 } from '@/lib/api/alerts';
 import { apiUrl } from '@/lib/api/client';
 
@@ -351,6 +351,7 @@ export function useAdvancedAlerts() {
     
     const lastPricesRef = useRef<Record<string, number>>({});
     
+    const ALERTS_SYNC_EVENT = 'advanced-alerts-synced';
     const HISTORY_SYNC_EVENT = 'advanced-alerts-history-synced';
     const SETTINGS_SYNC_EVENT = 'advanced-alerts-settings-synced';
 
@@ -366,6 +367,22 @@ export function useAdvancedAlerts() {
         const handler = () => setHistory(loadAlertHistory());
         window.addEventListener(HISTORY_SYNC_EVENT, handler);
         return () => window.removeEventListener(HISTORY_SYNC_EVENT, handler);
+    }, []);
+
+    // Sync alerts across multiple hook instances/components.
+    useEffect(() => {
+        const handler = () => setAlerts(loadAlerts());
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === ALERTS_STORAGE_KEY) {
+                handler();
+            }
+        };
+        window.addEventListener(ALERTS_SYNC_EVENT, handler);
+        window.addEventListener('storage', onStorage);
+        return () => {
+            window.removeEventListener(ALERTS_SYNC_EVENT, handler);
+            window.removeEventListener('storage', onStorage);
+        };
     }, []);
 
     // Sync settings across multiple hook instances/components.
@@ -423,9 +440,10 @@ export function useAdvancedAlerts() {
             saveAlerts(updated);
             return updated;
         });
+        setTimeout(() => window.dispatchEvent(new CustomEvent(ALERTS_SYNC_EVENT)), 0);
         
         return newAlert.id;
-    }, []);
+    }, [ALERTS_SYNC_EVENT]);
     
     // Update alert
     const updateAlert = useCallback((id: string, updates: Partial<Alert>) => {
@@ -434,7 +452,8 @@ export function useAdvancedAlerts() {
             saveAlerts(updated);
             return updated;
         });
-    }, []);
+        setTimeout(() => window.dispatchEvent(new CustomEvent(ALERTS_SYNC_EVENT)), 0);
+    }, [ALERTS_SYNC_EVENT]);
     
     // Delete alert
     const deleteAlert = useCallback((id: string) => {
@@ -443,7 +462,8 @@ export function useAdvancedAlerts() {
             saveAlerts(updated);
             return updated;
         });
-    }, []);
+        setTimeout(() => window.dispatchEvent(new CustomEvent(ALERTS_SYNC_EVENT)), 0);
+    }, [ALERTS_SYNC_EVENT]);
     
     // Toggle alert
     const toggleAlert = useCallback((id: string) => {
@@ -452,7 +472,8 @@ export function useAdvancedAlerts() {
             saveAlerts(updated);
             return updated;
         });
-    }, []);
+        setTimeout(() => window.dispatchEvent(new CustomEvent(ALERTS_SYNC_EVENT)), 0);
+    }, [ALERTS_SYNC_EVENT]);
     
     // Play sound
     const playSound = useCallback((priority: AlertPriority) => {

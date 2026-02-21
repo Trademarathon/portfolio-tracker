@@ -1,338 +1,943 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { useJournal } from "@/contexts/JournalContext";
-import { getHours, getDay } from "date-fns";
 import {
-    TrendingUp,
-    TrendingDown,
-    DollarSign,
-    Percent,
-    Clock,
-    BarChart3,
+    endOfDay,
+    endOfMonth,
+    endOfWeek,
+    format,
+    startOfDay,
+    startOfMonth,
+    startOfWeek,
+    subMonths,
+    subWeeks,
+} from "date-fns";
+import {
+    type DateRange,
+    type JournalFilters,
+    type JournalTrade,
+    useJournal,
+} from "@/contexts/JournalContext";
+import { STRATEGY_TAGS, type StrategyTagId } from "@/lib/api/journal-types";
+import {
+    buildCumulativePnlAndDrawdownSeries,
+    buildUtcDayOfWeekBuckets,
+    buildUtcTwoHourBuckets,
+} from "@/lib/journal/analytics-core";
+import { cn } from "@/lib/utils";
+import {
     Activity,
-    Target,
+    BarChart3,
+    CalendarDays,
+    Clock3,
+    RefreshCw,
 } from "lucide-react";
 
-const SESSIONS = [
-    { name: "Asia", startHour: 0, endHour: 8 },
-    { name: "London", startHour: 8, endHour: 16 },
-    { name: "New York", startHour: 13, endHour: 22 },
-    { name: "Off-Hours", startHour: 22, endHour: 24 },
+type MetricMode = "count" | "pnl" | "winRate";
+type DateGroupBy = "open" | "close";
+
+type HoldFilterOption = {
+    id: string;
+    label: string;
+    min: number | null;
+    max: number | null;
+};
+
+type HoldBucket = {
+    id: string;
+    label: string;
+    min: number;
+    max: number;
+};
+
+type SessionBucketId = "new_york" | "london" | "tokyo" | "overlap" | "outside";
+
+type MetricPoint = {
+    id: string;
+    label: string;
+    count: number;
+    wins: number;
+    losses: number;
+    pnl: number;
+    winRate: number;
+};
+
+type SeriesStats = {
+    points: number[];
+    largestDrawdown: number;
+    endingEquity: number;
+};
+
+const DEFAULT_FILTERS: JournalFilters = {
+    status: "all",
+    side: "all",
+    symbols: [],
+    tags: [],
+    exchange: "",
+    minPnl: null,
+    maxPnl: null,
+    minHoldTime: null,
+    maxHoldTime: null,
+};
+
+const HOLD_FILTER_OPTIONS: HoldFilterOption[] = [
+    { id: "all", label: "Any hold time", min: null, max: null },
+    { id: "under_5m", label: "Under 5m", min: 0, max: 5 * 60 * 1000 },
+    { id: "5m_30m", label: "5m - 30m", min: 5 * 60 * 1000, max: 30 * 60 * 1000 },
+    { id: "30m_2h", label: "30m - 2h", min: 30 * 60 * 1000, max: 2 * 60 * 60 * 1000 },
+    { id: "2h_1d", label: "2h - 1d", min: 2 * 60 * 60 * 1000, max: 24 * 60 * 60 * 1000 },
+    { id: "1d_plus", label: "1d+", min: 24 * 60 * 60 * 1000, max: null },
 ];
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-const HOLD_TIME_BUCKETS = [
-    { label: "< 1h", max: 60 * 60 * 1000 },
-    { label: "1-4h", max: 4 * 60 * 60 * 1000 },
-    { label: "4-8h", max: 8 * 60 * 60 * 1000 },
-    { label: "8-24h", max: 24 * 60 * 60 * 1000 },
-    { label: "1-3d", max: 3 * 24 * 60 * 60 * 1000 },
-    { label: "> 3d", max: Infinity },
+const HOLD_ANALYTICS_BUCKETS: HoldBucket[] = [
+    { id: "under_5m", label: "under 5m", min: 0, max: 5 * 60 * 1000 },
+    { id: "5m_15m", label: "5m-15m", min: 5 * 60 * 1000, max: 15 * 60 * 1000 },
+    { id: "15m_30m", label: "15m-30m", min: 15 * 60 * 1000, max: 30 * 60 * 1000 },
+    { id: "30m_1h", label: "30m-1h", min: 30 * 60 * 1000, max: 60 * 60 * 1000 },
+    { id: "1h_2h", label: "1h-2h", min: 60 * 60 * 1000, max: 2 * 60 * 60 * 1000 },
+    { id: "2h_4h", label: "2h-4h", min: 2 * 60 * 60 * 1000, max: 4 * 60 * 60 * 1000 },
+    { id: "4h_8h", label: "4h-8h", min: 4 * 60 * 60 * 1000, max: 8 * 60 * 60 * 1000 },
+    { id: "8h_12h", label: "8h-12h", min: 8 * 60 * 60 * 1000, max: 12 * 60 * 60 * 1000 },
+    { id: "12h_1d", label: "12h-1d", min: 12 * 60 * 60 * 1000, max: 24 * 60 * 60 * 1000 },
+    { id: "1d_7d", label: "1d-7d", min: 24 * 60 * 60 * 1000, max: 7 * 24 * 60 * 60 * 1000 },
+    { id: "7d_30d", label: "7d-30d", min: 7 * 24 * 60 * 60 * 1000, max: 30 * 24 * 60 * 60 * 1000 },
+    { id: "30d_plus", label: "30d+", min: 30 * 24 * 60 * 60 * 1000, max: Number.POSITIVE_INFINITY },
 ];
 
-interface MetricCardProps {
-    title: string;
-    value: string;
-    subtitle?: string;
-    icon: React.ElementType;
-    color: "emerald" | "rose" | "blue" | "amber" | "violet" | "zinc";
-    delay?: number;
+const DAY_ORDER = [
+    { id: "monday", label: "Monday", idx: 1 },
+    { id: "tuesday", label: "Tuesday", idx: 2 },
+    { id: "wednesday", label: "Wednesday", idx: 3 },
+    { id: "thursday", label: "Thursday", idx: 4 },
+    { id: "friday", label: "Friday", idx: 5 },
+    { id: "saturday", label: "Saturday", idx: 6 },
+    { id: "sunday", label: "Sunday", idx: 0 },
+] as const;
+
+const SESSION_LABELS: Record<SessionBucketId, string> = {
+    new_york: "New York (US)",
+    london: "London (EU)",
+    tokyo: "Tokyo (AS)",
+    overlap: "US and EU overlapping",
+    outside: "Outside Sessions",
+};
+
+const DATE_PRESETS = [
+    { id: "all", label: "All trades" },
+    { id: "last25", label: "Last 25 trades" },
+    { id: "last100", label: "Last 100 trades" },
+    { id: "today", label: "Today" },
+    { id: "thisWeek", label: "This week" },
+    { id: "lastWeek", label: "Last week" },
+    { id: "thisMonth", label: "This month" },
+    { id: "lastMonth", label: "Last month" },
+    { id: "thisYear", label: "This year" },
+];
+
+function getTradePnl(trade: JournalTrade): number {
+    return Number(trade.realizedPnl ?? trade.pnl ?? 0);
 }
 
-function MetricCard({ title, value, subtitle, icon: Icon, color, delay = 0 }: MetricCardProps) {
-    const colorClasses = {
-        emerald: "bg-emerald-500/20 text-emerald-400",
-        rose: "bg-rose-500/20 text-rose-400",
-        blue: "bg-blue-500/20 text-blue-400",
-        amber: "bg-amber-500/20 text-amber-400",
-        violet: "bg-violet-500/20 text-violet-400",
-        zinc: "bg-zinc-700/50 text-zinc-300",
+function getTradeVolume(trade: JournalTrade): number {
+    const explicit = Number(trade.cost ?? 0);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+    const amount = Number(trade.amount ?? 0);
+    const price = Number(trade.price ?? 0);
+    const fallback = amount * price;
+    return Number.isFinite(fallback) ? Math.abs(fallback) : 0;
+}
+
+function winRateFromCounts(wins: number, losses: number): number {
+    const decisiveTrades = Math.max(0, wins) + Math.max(0, losses);
+    return decisiveTrades > 0 ? (Math.max(0, wins) / decisiveTrades) * 100 : 0;
+}
+
+function getTradeHoldTimeMs(trade: JournalTrade): number {
+    const explicit = Number(trade.holdTime ?? 0);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+    const entryTime = Number(trade.entryTime ?? trade.timestamp ?? 0);
+    const exitTime = Number(trade.exitTime ?? 0);
+    if (entryTime > 0 && exitTime > entryTime) return exitTime - entryTime;
+
+    return 0;
+}
+
+function getTradeMaeAbs(trade: JournalTrade): number | null {
+    const value = Number(trade.mae);
+    if (!Number.isFinite(value) || value === 0) return null;
+    return Math.abs(value);
+}
+
+function getTradeMfeAbs(trade: JournalTrade): number | null {
+    const value = Number(trade.mfe);
+    if (!Number.isFinite(value) || value === 0) return null;
+    return Math.abs(value);
+}
+
+function getTradeTimestamp(trade: JournalTrade, groupBy: DateGroupBy): number {
+    if (groupBy === "close") {
+        return Number(trade.exitTime ?? trade.timestamp ?? 0);
+    }
+    return Number(trade.entryTime ?? trade.timestamp ?? 0);
+}
+
+function getOrderType(trade: JournalTrade): "maker" | "market" | "unknown" {
+    const info = trade.info && typeof trade.info === "object" ? trade.info : {};
+
+    const raw = String(
+        trade.takerOrMaker ??
+            (info as Record<string, unknown>).takerOrMaker ??
+            (info as Record<string, unknown>).maker ??
+            (info as Record<string, unknown>).isMaker ??
+            (info as Record<string, unknown>).liquidity ??
+            (info as Record<string, unknown>).orderType ??
+            ""
+    ).toLowerCase();
+
+    if (raw.includes("maker") || raw.includes("limit") || raw.includes("post")) return "maker";
+    if (raw.includes("taker") || raw.includes("market")) return "market";
+
+    return "unknown";
+}
+
+function createDateRangeFromPreset(preset: string, groupBy: DateGroupBy): DateRange {
+    const now = new Date();
+
+    switch (preset) {
+        case "today":
+            return { start: startOfDay(now), end: endOfDay(now), preset, mode: "range", groupBy };
+        case "thisWeek":
+            return {
+                start: startOfWeek(now, { weekStartsOn: 1 }),
+                end: endOfWeek(now, { weekStartsOn: 1 }),
+                preset,
+                mode: "range",
+                groupBy,
+            };
+        case "lastWeek": {
+            const week = subWeeks(now, 1);
+            return {
+                start: startOfWeek(week, { weekStartsOn: 1 }),
+                end: endOfWeek(week, { weekStartsOn: 1 }),
+                preset,
+                mode: "range",
+                groupBy,
+            };
+        }
+        case "thisMonth":
+            return { start: startOfMonth(now), end: endOfMonth(now), preset, mode: "range", groupBy };
+        case "lastMonth": {
+            const month = subMonths(now, 1);
+            return { start: startOfMonth(month), end: endOfMonth(month), preset, mode: "range", groupBy };
+        }
+        case "thisYear":
+            return {
+                start: new Date(now.getFullYear(), 0, 1),
+                end: now,
+                preset,
+                mode: "range",
+                groupBy,
+            };
+        case "all":
+        case "last25":
+        case "last100":
+        default:
+            return { start: null, end: null, preset, mode: "range", groupBy };
+    }
+}
+
+function formatDuration(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) return "0h";
+
+    const totalMinutes = Math.floor(ms / (1000 * 60));
+    const totalHours = Math.floor(totalMinutes / 60);
+    const days = Math.floor(totalHours / 24);
+
+    if (days > 0) return `${days}d ${totalHours % 24}h`;
+    if (totalHours > 0) return `${totalHours}h ${totalMinutes % 60}m`;
+    return `${totalMinutes}m`;
+}
+
+function formatCurrency(value: number, hideBalances: boolean): string {
+    if (hideBalances) return "••••";
+    return `$${Math.abs(value).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+}
+
+function formatSignedCurrency(value: number, hideBalances: boolean): string {
+    if (hideBalances) return "••••";
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    return `${sign}$${Math.abs(value).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+}
+
+function formatMetricValue(mode: MetricMode, value: number, hideBalances: boolean): string {
+    if (mode === "count") return `${value.toFixed(value >= 10 ? 0 : 1)}`;
+    if (mode === "winRate") return `${value.toFixed(1)}%`;
+    return formatSignedCurrency(value, hideBalances);
+}
+
+function buildSeriesStats(closedTrades: JournalTrade[]): {
+    equity: SeriesStats;
+    drawdown: SeriesStats;
+} {
+    const series = buildCumulativePnlAndDrawdownSeries(closedTrades, {
+        getTimestamp: (trade) => Number(trade.timestamp),
+        getPnlDelta: getTradePnl,
+    });
+    const equityPoints = series.pnlSeries.map((point) => point.value);
+    const drawdownPoints = series.drawdownSeries.map((point) => point.value);
+
+    return {
+        equity: {
+            points: equityPoints,
+            largestDrawdown: series.maxDrawdown,
+            endingEquity: series.totalPnl,
+        },
+        drawdown: {
+            points: drawdownPoints,
+            largestDrawdown: series.maxDrawdown,
+            endingEquity: drawdownPoints.length > 0 ? drawdownPoints[drawdownPoints.length - 1] : 0,
+        },
     };
-
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay }}
-            className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800/50"
-        >
-            <div className="flex items-center gap-3 mb-2">
-                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", colorClasses[color])}>
-                    <Icon className="w-4 h-4" />
-                </div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wider font-medium">{title}</span>
-            </div>
-            <p className="text-xl font-black text-white">{value}</p>
-            {subtitle && <p className="text-xs text-zinc-500 mt-1">{subtitle}</p>}
-        </motion.div>
-    );
 }
 
-function HorizontalBarChart({
-    data,
-    maxValue,
-}: {
-    data: { label: string; value: number; color: string }[];
-    maxValue: number;
-}) {
-    return (
-        <div className="space-y-2">
-            {data.map((item, i) => (
-                <div key={item.label} className="flex items-center gap-3">
-                    <span className="text-xs text-zinc-400 w-20 text-right">{item.label}</span>
-                    <div className="flex-1 h-6 bg-zinc-800/50 rounded overflow-hidden">
-                        <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(Math.abs(item.value) / Math.max(1, maxValue)) * 100}%` }}
-                            transition={{ delay: i * 0.05, duration: 0.5 }}
-                            className={cn("h-full rounded", item.color)}
-                        />
-                    </div>
-                    <span
-                        className={cn(
-                            "text-xs font-bold w-16 text-right",
-                            item.value >= 0 ? "text-emerald-400" : "text-rose-400"
-                        )}
-                    >
-                        ${Math.abs(item.value).toFixed(0)}
-                    </span>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-function AreaLineChart({
-    values,
+function SeriesAreaChart({
+    points,
     positive,
 }: {
-    values: number[];
+    points: number[];
     positive: boolean;
 }) {
-    if (!values.length) {
+    if (points.length < 2) {
         return (
-            <div className="h-full w-full flex items-center justify-center text-zinc-600 text-xs">
+            <div className="h-full w-full flex items-center justify-center text-xs text-zinc-600">
                 No closed-trade series yet
             </div>
         );
     }
 
     const width = 100;
-    const height = 40;
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    const height = 38;
+    const min = Math.min(...points);
+    const max = Math.max(...points);
     const range = Math.max(1, max - min);
 
-    const points = values
-        .map((value, idx) => {
-            const x = (idx / Math.max(1, values.length - 1)) * width;
+    const line = points
+        .map((value, index) => {
+            const x = (index / Math.max(1, points.length - 1)) * width;
             const y = height - ((value - min) / range) * height;
             return `${x.toFixed(2)},${y.toFixed(2)}`;
         })
         .join(" ");
 
-    const fillPoints = `0,${height} ${points} ${width},${height}`;
-    const strokeClass = positive ? "text-emerald-400" : "text-rose-400";
-    const fillClass = positive ? "fill-emerald-500/20" : "fill-rose-500/20";
+    const fill = `0,${height} ${line} ${width},${height}`;
 
     return (
         <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full">
-            <polygon className={fillClass} points={fillPoints} />
-            <polyline className={cn("fill-none stroke-2", strokeClass)} points={points} />
+            <polygon
+                className={cn(
+                    positive ? "fill-emerald-500/15" : "fill-rose-500/15"
+                )}
+                points={fill}
+            />
+            <polyline
+                className={cn(
+                    "fill-none stroke-[1.4]",
+                    positive ? "stroke-emerald-400" : "stroke-rose-400"
+                )}
+                points={line}
+            />
         </svg>
     );
 }
 
+function RatioDonut({
+    left,
+    right,
+    leftLabel,
+    rightLabel,
+}: {
+    left: number;
+    right: number;
+    leftLabel: string;
+    rightLabel: string;
+}) {
+    const safeLeft = Number.isFinite(left) ? Math.max(0, left) : 0;
+    const safeRight = Number.isFinite(right) ? Math.max(0, right) : 0;
+    const total = Math.max(1, safeLeft + safeRight);
+    const leftRatio = safeLeft / total;
+    const rightRatio = safeRight / total;
+
+    const radius = 32;
+    const stroke = 5;
+    const circumference = 2 * Math.PI * radius;
+    const leftDash = leftRatio * circumference;
+    const rightDash = rightRatio * circumference;
+
+    return (
+        <div className="flex items-center justify-between gap-3">
+            <div className="relative w-[84px] h-[84px]">
+                <svg viewBox="0 0 80 80" className="w-full h-full -rotate-90">
+                    <circle cx="40" cy="40" r={radius} stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} fill="none" />
+                    <circle
+                        cx="40"
+                        cy="40"
+                        r={radius}
+                        stroke="#49d3a2"
+                        strokeWidth={stroke}
+                        fill="none"
+                        strokeDasharray={`${leftDash} ${circumference - leftDash}`}
+                        strokeLinecap="round"
+                    />
+                    <circle
+                        cx="40"
+                        cy="40"
+                        r={radius}
+                        stroke="#f0627c"
+                        strokeWidth={stroke}
+                        fill="none"
+                        strokeDasharray={`${rightDash} ${circumference - rightDash}`}
+                        strokeDashoffset={-leftDash}
+                        strokeLinecap="round"
+                    />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-zinc-300">
+                    {(leftRatio * 100).toFixed(0)}% / {(rightRatio * 100).toFixed(0)}%
+                </div>
+            </div>
+
+            <div className="space-y-2 text-[11px] text-zinc-500">
+                <div className="flex items-center gap-2">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    <span>{leftLabel}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-400" />
+                    <span>{rightLabel}</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function MetricModeToggle({
+    mode,
+    onModeChange,
+}: {
+    mode: MetricMode;
+    onModeChange: (mode: MetricMode) => void;
+}) {
+    return (
+        <div className="inline-flex rounded-lg border border-zinc-800 overflow-hidden">
+            {(["count", "pnl", "winRate"] as MetricMode[]).map((item) => (
+                <button
+                    key={item}
+                    type="button"
+                    onClick={() => onModeChange(item)}
+                    className={cn(
+                        "px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors",
+                        mode === item
+                            ? "bg-zinc-700 text-white"
+                            : "bg-zinc-900/30 text-zinc-500 hover:text-zinc-300"
+                    )}
+                >
+                    {item === "winRate" ? "Win rate" : item}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function VerticalMetricBars({
+    data,
+    mode,
+    hideBalances,
+}: {
+    data: MetricPoint[];
+    mode: MetricMode;
+    hideBalances: boolean;
+}) {
+    const values = data.map((item) => {
+        if (mode === "count") return item.count;
+        if (mode === "winRate") return item.winRate;
+        return item.pnl;
+    });
+
+    const hasNegative = values.some((value) => value < 0);
+    const maxPositive = Math.max(1, ...values.filter((value) => value > 0));
+    const maxNegative = Math.max(1, ...values.filter((value) => value < 0).map((value) => Math.abs(value)));
+
+    if (data.length === 0) {
+        return (
+            <div className="h-[250px] flex items-center justify-center text-sm text-zinc-600">
+                Not enough trade data for this section
+            </div>
+        );
+    }
+
+    return (
+        <div className="overflow-x-auto pb-1">
+            <div className={cn("flex gap-2", data.length > 7 ? "min-w-[920px]" : "") }>
+                {data.map((item) => {
+                    const value = mode === "count" ? item.count : mode === "winRate" ? item.winRate : item.pnl;
+
+                    const positiveHeight = hasNegative
+                        ? `${(Math.max(0, value) / maxPositive) * 44}%`
+                        : `${(Math.max(0, value) / maxPositive) * 90}%`;
+
+                    const negativeHeight = hasNegative
+                        ? `${(Math.abs(Math.min(0, value)) / maxNegative) * 44}%`
+                        : "0%";
+
+                    return (
+                        <div key={item.id} className="flex-1 min-w-[64px]">
+                            <div className="relative h-[180px] rounded-md">
+                                <div
+                                    className={cn(
+                                        "absolute left-0 right-0 h-px bg-zinc-700/70",
+                                        hasNegative ? "top-1/2" : "bottom-0"
+                                    )}
+                                />
+
+                                {value > 0 && (
+                                    <div
+                                        title={formatMetricValue(mode, value, hideBalances)}
+                                        className="absolute left-2 right-2 rounded-t-md bg-emerald-400/80"
+                                        style={{
+                                            height: positiveHeight,
+                                            bottom: hasNegative ? "50%" : "0%",
+                                        }}
+                                    />
+                                )}
+
+                                {value < 0 && hasNegative && (
+                                    <div
+                                        title={formatMetricValue(mode, value, hideBalances)}
+                                        className="absolute left-2 right-2 rounded-b-md bg-rose-400/80"
+                                        style={{
+                                            height: negativeHeight,
+                                            top: "50%",
+                                        }}
+                                    />
+                                )}
+                            </div>
+
+                            <p className="mt-2 text-[11px] text-zinc-500 text-center leading-tight">{item.label}</p>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+function AnalysisChartCard({
+    title,
+    data,
+    mode,
+    onModeChange,
+    hideBalances,
+    controls,
+}: {
+    title: string;
+    data: MetricPoint[];
+    mode: MetricMode;
+    onModeChange: (mode: MetricMode) => void;
+    hideBalances: boolean;
+    controls?: React.ReactNode;
+}) {
+    return (
+        <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/35 p-4">
+            <div className="flex items-center justify-between mb-4 gap-3">
+                <h3 className="text-xl font-bold text-white">{title}</h3>
+                <div className="flex items-center gap-3">
+                    {controls}
+                    <MetricModeToggle mode={mode} onModeChange={onModeChange} />
+                </div>
+            </div>
+
+            <VerticalMetricBars data={data} mode={mode} hideBalances={hideBalances} />
+        </div>
+    );
+}
+
 export default function AnalyticsPage() {
-    const { filteredTrades, stats, preferences, isLoading } = useJournal();
+    const {
+        trades,
+        filteredTrades,
+        annotations,
+        filters,
+        setFilters,
+        dateRange,
+        setDateRange,
+        stats,
+        preferences,
+        isLoading,
+    } = useJournal();
+
+    const [holdMode, setHoldMode] = useState<MetricMode>("pnl");
+    const [sessionMode, setSessionMode] = useState<MetricMode>("pnl");
+    const [dayMode, setDayMode] = useState<MetricMode>("pnl");
+    const [timeMode, setTimeMode] = useState<MetricMode>("pnl");
+    const [sessionGroupBy, setSessionGroupBy] = useState<DateGroupBy>(dateRange.groupBy ?? "open");
+    const [timeGroupBy, setTimeGroupBy] = useState<DateGroupBy>(dateRange.groupBy ?? "open");
+    const [includeWeekends, setIncludeWeekends] = useState(true);
+
+    const allSymbols = useMemo(
+        () => Array.from(new Set(trades.map((trade) => String(trade.symbol || "")).filter(Boolean))).sort(),
+        [trades]
+    );
+
+    const allExchanges = useMemo(
+        () => Array.from(new Set(trades.map((trade) => String(trade.exchange || "")).filter(Boolean))).sort(),
+        [trades]
+    );
 
     const closedTrades = useMemo(
-        () => filteredTrades.filter((t) => !t.isOpen).sort((a, b) => a.timestamp - b.timestamp),
+        () =>
+            filteredTrades
+                .filter((trade) => !trade.isOpen)
+                .sort((a, b) => Number(a.timestamp) - Number(b.timestamp)),
         [filteredTrades]
     );
 
-    const curveStats = useMemo(() => {
-        let equity = 0;
-        let peak = 0;
-        const equityCurve: number[] = [];
-        const drawdownCurve: number[] = [];
+    const curve = useMemo(() => buildSeriesStats(closedTrades), [closedTrades]);
 
-        closedTrades.forEach((trade) => {
-            equity += Number(trade.realizedPnl || 0);
-            peak = Math.max(peak, equity);
-            const dd = equity - peak;
-            equityCurve.push(equity);
-            drawdownCurve.push(dd);
-        });
-
-        return {
-            equityCurve,
-            drawdownCurve,
-            largestDrawdown: drawdownCurve.length ? Math.min(...drawdownCurve) : 0,
-            endingEquity: equityCurve.length ? equityCurve[equityCurve.length - 1] : 0,
-        };
+    const dateRangeText = useMemo(() => {
+        if (closedTrades.length === 0) return "No closed-trade data";
+        const start = format(closedTrades[0].timestamp, "MMM d, yyyy");
+        const end = format(closedTrades[closedTrades.length - 1].timestamp, "MMM d, yyyy");
+        return `${start} - ${end}`;
     }, [closedTrades]);
 
     const advancedMetrics = useMemo(() => {
         if (closedTrades.length === 0) {
             return {
-                sharpeRatio: 0,
-                sortinoRatio: 0,
                 avgMae: 0,
                 avgMfe: 0,
+                maeSamples: 0,
+                mfeSamples: 0,
                 mfeMaeRatio: 0,
+                sharpeRatio: 0,
+                sortinoRatio: 0,
                 expectedValue: 0,
-                totalFees: 0,
-                totalFunding: 0,
                 limitFees: 0,
                 marketFees: 0,
                 unknownFees: 0,
+                totalFees: 0,
+                makerVolume: 0,
+                marketVolume: 0,
+                unknownVolume: 0,
+                fundingPaid: 0,
+                fundingReceived: 0,
+                netFunding: 0,
             };
         }
 
-        const returns = closedTrades.map((t) => Number(t.realizedPnl || 0));
-        const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+        const returns = closedTrades.map((trade) => getTradePnl(trade));
+        const avgReturn = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+        const variance =
+            returns.reduce((sum, value) => sum + Math.pow(value - avgReturn, 2), 0) /
+            Math.max(1, returns.length);
         const stdDev = Math.sqrt(variance);
 
-        const negativeReturns = returns.filter((r) => r < 0);
-        const negVariance = negativeReturns.length > 0
-            ? negativeReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / negativeReturns.length
-            : 0;
-        const downside = Math.sqrt(negVariance);
+        const downside = returns.filter((value) => value < 0);
+        const downsideVariance =
+            downside.reduce((sum, value) => sum + Math.pow(value, 2), 0) / Math.max(1, downside.length);
+        const downsideDeviation = Math.sqrt(downsideVariance);
 
-        const avgMae = closedTrades.reduce((sum, t) => sum + Number(t.mae || 0), 0) / closedTrades.length;
-        const avgMfe = closedTrades.reduce((sum, t) => sum + Number(t.mfe || 0), 0) / closedTrades.length;
+        const maeValues = closedTrades
+            .map((trade) => getTradeMaeAbs(trade))
+            .filter((value): value is number => value !== null);
+        const mfeValues = closedTrades
+            .map((trade) => getTradeMfeAbs(trade))
+            .filter((value): value is number => value !== null);
+        const avgMae = maeValues.length > 0 ? maeValues.reduce((sum, value) => sum + value, 0) / maeValues.length : 0;
+        const avgMfe = mfeValues.length > 0 ? mfeValues.reduce((sum, value) => sum + value, 0) / mfeValues.length : 0;
+
+        const winRateRatio = stats.winningTrades / Math.max(1, stats.winningTrades + stats.losingTrades);
+        const expectedValue = winRateRatio * stats.avgWin - (1 - winRateRatio) * stats.avgLoss;
 
         const feeBreakdown = closedTrades.reduce(
             (acc, trade) => {
-                const fee = Math.abs(Number(trade.fees || 0));
-                if (!fee) return acc;
+                const feeValue = Math.abs(Number(trade.fees ?? trade.feeUsd ?? trade.fee ?? 0));
+                const volume = getTradeVolume(trade);
+                const orderType = getOrderType(trade);
 
-                const info = (trade as unknown as { info?: Record<string, unknown> }).info || {};
-                const makerHint = info.isMaker ?? info.maker ?? info.liquidity ?? info.orderType;
-                const hint = String(makerHint ?? "").toLowerCase();
-
-                if (makerHint === true || hint === "maker" || hint === "limit" || hint === "postonly") {
-                    acc.limit += fee;
-                } else if (makerHint === false || hint === "taker" || hint === "market") {
-                    acc.market += fee;
+                if (orderType === "maker") {
+                    acc.limitFees += feeValue;
+                    acc.makerVolume += volume;
+                } else if (orderType === "market") {
+                    acc.marketFees += feeValue;
+                    acc.marketVolume += volume;
                 } else {
-                    acc.unknown += fee;
+                    acc.unknownFees += feeValue;
+                    acc.unknownVolume += volume;
                 }
+
                 return acc;
             },
-            { limit: 0, market: 0, unknown: 0 }
+            {
+                limitFees: 0,
+                marketFees: 0,
+                unknownFees: 0,
+                makerVolume: 0,
+                marketVolume: 0,
+                unknownVolume: 0,
+            }
         );
 
-        const totalFunding = closedTrades.reduce((sum, t) => sum + Number(t.funding || 0), 0);
+        const fundingPaid = Math.abs(
+            closedTrades
+                .map((trade) => Number(trade.funding ?? 0))
+                .filter((value) => value < 0)
+                .reduce((sum, value) => sum + value, 0)
+        );
 
-        const winRate = stats.winningTrades / Math.max(1, closedTrades.length);
-        const avgWin = stats.avgWin;
-        const avgLoss = stats.avgLoss;
-        const expectedValue = (winRate * avgWin) - ((1 - winRate) * avgLoss);
+        const fundingReceived = closedTrades
+            .map((trade) => Number(trade.funding ?? 0))
+            .filter((value) => value > 0)
+            .reduce((sum, value) => sum + value, 0);
 
         return {
+            avgMae,
+            avgMfe,
+            maeSamples: maeValues.length,
+            mfeSamples: mfeValues.length,
+            mfeMaeRatio: avgMae > 0 ? avgMfe / avgMae : 0,
             sharpeRatio: stdDev > 0 ? avgReturn / stdDev : 0,
-            sortinoRatio: downside > 0 ? avgReturn / downside : 0,
-            avgMae: Math.abs(avgMae),
-            avgMfe: avgMfe,
-            mfeMaeRatio: avgMae !== 0 ? avgMfe / Math.abs(avgMae) : 0,
+            sortinoRatio: downsideDeviation > 0 ? avgReturn / downsideDeviation : 0,
             expectedValue,
-            totalFees: feeBreakdown.limit + feeBreakdown.market + feeBreakdown.unknown,
-            totalFunding,
-            limitFees: feeBreakdown.limit,
-            marketFees: feeBreakdown.market,
-            unknownFees: feeBreakdown.unknown,
+            limitFees: feeBreakdown.limitFees,
+            marketFees: feeBreakdown.marketFees,
+            unknownFees: feeBreakdown.unknownFees,
+            totalFees: feeBreakdown.limitFees + feeBreakdown.marketFees + feeBreakdown.unknownFees,
+            makerVolume: feeBreakdown.makerVolume,
+            marketVolume: feeBreakdown.marketVolume,
+            unknownVolume: feeBreakdown.unknownVolume,
+            fundingPaid,
+            fundingReceived,
+            netFunding: fundingReceived - fundingPaid,
         };
-    }, [closedTrades, stats]);
-
-    const sessionData = useMemo(() => {
-        return SESSIONS.map((session) => {
-            const sessionTrades = closedTrades.filter((t) => {
-                const hour = getHours(new Date(t.timestamp));
-                return hour >= session.startHour && hour < session.endHour;
-            });
-            const pnl = sessionTrades.reduce((sum, t) => sum + Number(t.realizedPnl || 0), 0);
-            return {
-                label: session.name,
-                value: pnl,
-                color: pnl >= 0 ? "bg-emerald-500" : "bg-rose-500",
-                count: sessionTrades.length,
-            };
-        });
-    }, [closedTrades]);
-
-    const dayData = useMemo(() => {
-        return DAYS.map((day, index) => {
-            const dayTrades = closedTrades.filter((t) => getDay(new Date(t.timestamp)) === index);
-            const pnl = dayTrades.reduce((sum, t) => sum + Number(t.realizedPnl || 0), 0);
-            return {
-                label: day,
-                value: pnl,
-                color: pnl >= 0 ? "bg-emerald-500" : "bg-rose-500",
-                count: dayTrades.length,
-            };
-        });
-    }, [closedTrades]);
+    }, [closedTrades, stats.avgLoss, stats.avgWin, stats.losingTrades, stats.winningTrades]);
 
     const holdTimeData = useMemo(() => {
-        return HOLD_TIME_BUCKETS.map((bucket, i) => {
-            const prevMax = i > 0 ? HOLD_TIME_BUCKETS[i - 1].max : 0;
-            const bucketTrades = closedTrades.filter((t) => {
-                const holdTime = Number(t.holdTime || 0);
-                return holdTime >= prevMax && holdTime < bucket.max;
-            });
+        const buckets = HOLD_ANALYTICS_BUCKETS.map((bucket) => ({
+            ...bucket,
+            count: 0,
+            wins: 0,
+            losses: 0,
+            pnl: 0,
+        }));
 
-            const pnl = bucketTrades.reduce((sum, t) => sum + Number(t.realizedPnl || 0), 0);
-            return {
+        const withHold = closedTrades.filter((trade) => getTradeHoldTimeMs(trade) > 0);
+
+        withHold.forEach((trade) => {
+            const hold = getTradeHoldTimeMs(trade);
+            const pnl = getTradePnl(trade);
+            const bucket = buckets.find((item) => hold >= item.min && hold < item.max);
+            if (!bucket) return;
+            bucket.count += 1;
+            bucket.pnl += pnl;
+            if (pnl > 0) bucket.wins += 1;
+            if (pnl < 0) bucket.losses += 1;
+        });
+
+        const averageCount = withHold.length / Math.max(1, buckets.length);
+        const averagePnl = withHold.reduce((sum, trade) => sum + getTradePnl(trade), 0) / Math.max(1, withHold.length);
+        const averageWins = withHold.filter((trade) => getTradePnl(trade) > 0).length;
+        const averageLosses = withHold.filter((trade) => getTradePnl(trade) < 0).length;
+
+        const points: MetricPoint[] = [
+            {
+                id: "average",
+                label: "Average",
+                count: averageCount,
+                wins: averageWins,
+                losses: averageLosses,
+                pnl: averagePnl,
+                winRate: winRateFromCounts(averageWins, averageLosses),
+            },
+            ...buckets.map((bucket) => ({
+                id: bucket.id,
                 label: bucket.label,
-                value: pnl,
-                color: pnl >= 0 ? "bg-emerald-500" : "bg-rose-500",
-                count: bucketTrades.length,
-            };
-        });
+                count: bucket.count,
+                wins: bucket.wins,
+                losses: bucket.losses,
+                pnl: bucket.pnl,
+                winRate: winRateFromCounts(bucket.wins, bucket.losses),
+            })),
+        ];
+
+        return points;
     }, [closedTrades]);
 
-    const hourlyData = useMemo(() => {
-        return Array.from({ length: 24 }, (_, hour) => {
-            const hourTrades = closedTrades.filter((t) => getHours(new Date(t.timestamp)) === hour);
-            const pnl = hourTrades.reduce((sum, t) => sum + Number(t.realizedPnl || 0), 0);
+    const sessionData = useMemo(() => {
+        const acc: Record<SessionBucketId, { count: number; wins: number; losses: number; pnl: number }> = {
+            new_york: { count: 0, wins: 0, losses: 0, pnl: 0 },
+            london: { count: 0, wins: 0, losses: 0, pnl: 0 },
+            tokyo: { count: 0, wins: 0, losses: 0, pnl: 0 },
+            overlap: { count: 0, wins: 0, losses: 0, pnl: 0 },
+            outside: { count: 0, wins: 0, losses: 0, pnl: 0 },
+        };
+
+        const scopedTrades = closedTrades.filter((trade) => {
+            if (includeWeekends) return true;
+            const ts = getTradeTimestamp(trade, sessionGroupBy);
+            const day = new Date(ts).getUTCDay();
+            return day !== 0 && day !== 6;
+        });
+
+        scopedTrades.forEach((trade) => {
+            const ts = getTradeTimestamp(trade, sessionGroupBy);
+            const hour = new Date(ts).getUTCHours();
+            const pnl = getTradePnl(trade);
+
+            let bucket: SessionBucketId = "outside";
+            if (hour >= 13 && hour < 16) bucket = "overlap";
+            else if (hour >= 13 && hour < 21) bucket = "new_york";
+            else if (hour >= 8 && hour < 13) bucket = "london";
+            else if (hour >= 0 && hour < 8) bucket = "tokyo";
+
+            acc[bucket].count += 1;
+            acc[bucket].pnl += pnl;
+            if (pnl > 0) acc[bucket].wins += 1;
+            if (pnl < 0) acc[bucket].losses += 1;
+        });
+
+        const labels: SessionBucketId[] = ["new_york", "london", "tokyo", "overlap", "outside"];
+        const totalCount = labels.reduce((sum, key) => sum + acc[key].count, 0);
+        const totalPnl = labels.reduce((sum, key) => sum + acc[key].pnl, 0);
+        const totalWins = labels.reduce((sum, key) => sum + acc[key].wins, 0);
+        const totalLosses = labels.reduce((sum, key) => sum + acc[key].losses, 0);
+
+        const average: MetricPoint = {
+            id: "average",
+            label: "Average",
+            count: totalCount / Math.max(1, labels.length),
+            wins: totalWins,
+            losses: totalLosses,
+            pnl: totalPnl / Math.max(1, totalCount),
+            winRate: winRateFromCounts(totalWins, totalLosses),
+        };
+
+        return [
+            average,
+            ...labels.map((id) => ({
+                id,
+                label: SESSION_LABELS[id],
+                count: acc[id].count,
+                wins: acc[id].wins,
+                losses: acc[id].losses,
+                pnl: acc[id].pnl,
+                winRate: winRateFromCounts(acc[id].wins, acc[id].losses),
+            })),
+        ];
+    }, [closedTrades, includeWeekends, sessionGroupBy]);
+
+    const dayOfWeekData = useMemo(() => {
+        const rawBuckets = buildUtcDayOfWeekBuckets(closedTrades, {
+            getTimestamp: (trade) => getTradeTimestamp(trade, "open"),
+            getPnl: getTradePnl,
+            dayLabels: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+        });
+        const byDayIndex = new Map(rawBuckets.map((bucket) => [bucket.dayIndex, bucket]));
+
+        const rows = DAY_ORDER.map((day) => {
+            const bucket = byDayIndex.get(day.idx);
+            const count = bucket?.count || 0;
+            const wins = bucket?.wins || 0;
+            const losses = bucket?.losses || 0;
+            const pnl = bucket?.pnl || 0;
             return {
-                label: `${hour}:00`,
-                value: pnl,
-                color: pnl >= 0 ? "bg-emerald-500" : "bg-rose-500",
-                count: hourTrades.length,
+                id: day.id,
+                label: day.label,
+                count,
+                wins,
+                losses,
+                pnl,
+                winRate: winRateFromCounts(wins, losses),
             };
         });
+
+        const totalCount = rows.reduce((sum, item) => sum + item.count, 0);
+        const totalPnl = rows.reduce((sum, item) => sum + item.pnl, 0);
+        const totalWins = rows.reduce((sum, item) => sum + item.wins, 0);
+        const totalLosses = rows.reduce((sum, item) => sum + item.losses, 0);
+
+        const average: MetricPoint = {
+            id: "average",
+            label: "Average",
+            count: totalCount / Math.max(1, rows.length),
+            wins: totalWins,
+            losses: totalLosses,
+            pnl: totalPnl / Math.max(1, totalCount),
+            winRate: winRateFromCounts(totalWins, totalLosses),
+        };
+
+        return [
+            average,
+            ...rows,
+        ];
     }, [closedTrades]);
 
-    const maxSessionPnl = Math.max(...sessionData.map((d) => Math.abs(d.value)), 1);
-    const maxDayPnl = Math.max(...dayData.map((d) => Math.abs(d.value)), 1);
-    const maxHoldTimePnl = Math.max(...holdTimeData.map((d) => Math.abs(d.value)), 1);
+    const timeOfDayData = useMemo(() => {
+        const bins = buildUtcTwoHourBuckets(closedTrades, {
+            getTimestamp: (trade) => getTradeTimestamp(trade, timeGroupBy),
+            getPnl: getTradePnl,
+        }).map((bucket, index) => ({
+            id: `bin_${index}`,
+            label: `${String(bucket.hour).padStart(2, "0")}-${String((bucket.hour + 2) % 24).padStart(2, "0")}`,
+            count: bucket.count,
+            wins: bucket.wins,
+            losses: bucket.losses,
+            pnl: bucket.pnl,
+            winRate: winRateFromCounts(bucket.wins, bucket.losses),
+        }));
 
-    const fundingPaid = Math.abs(Math.min(0, advancedMetrics.totalFunding));
-    const fundingReceived = Math.max(0, advancedMetrics.totalFunding);
+        const totalCount = bins.reduce((sum, item) => sum + item.count, 0);
+        const totalPnl = bins.reduce((sum, item) => sum + item.pnl, 0);
+        const totalWins = bins.reduce((sum, item) => sum + item.wins, 0);
+        const totalLosses = bins.reduce((sum, item) => sum + item.losses, 0);
 
-    const formatCurrency = (v: number) => {
-        if (preferences.hideBalances) return "••••";
-        return `$${Math.abs(v).toFixed(2)}`;
+        const average: MetricPoint = {
+            id: "average",
+            label: "Average",
+            count: totalCount / Math.max(1, bins.length),
+            wins: totalWins,
+            losses: totalLosses,
+            pnl: totalPnl / Math.max(1, totalCount),
+            winRate: winRateFromCounts(totalWins, totalLosses),
+        };
+
+        return [
+            average,
+            ...bins,
+        ];
+    }, [closedTrades, timeGroupBy]);
+
+    const activeHoldFilter = useMemo(() => {
+        const match = HOLD_FILTER_OPTIONS.find(
+            (item) => item.min === filters.minHoldTime && item.max === filters.maxHoldTime
+        );
+        return match?.id ?? "all";
+    }, [filters.maxHoldTime, filters.minHoldTime]);
+
+    const updateFilters = (patch: Partial<JournalFilters>) => {
+        setFilters({ ...filters, ...patch });
     };
 
-    const formatCurrencySigned = (v: number) => {
-        if (preferences.hideBalances) return "••••";
-        const sign = v > 0 ? "+" : v < 0 ? "-" : "";
-        return `${sign}$${Math.abs(v).toFixed(2)}`;
-    };
-
-    const formatHoldTime = (ms: number) => {
-        const hours = ms / (1000 * 60 * 60);
-        if (hours < 24) return `${hours.toFixed(1)}h`;
-        return `${(hours / 24).toFixed(1)}d`;
+    const handleResetFilters = () => {
+        setFilters(DEFAULT_FILTERS);
+        setDateRange({ start: null, end: null, preset: "all", mode: "range", groupBy: dateRange.groupBy });
     };
 
     if (isLoading) {
@@ -344,170 +949,431 @@ export default function AnalyticsPage() {
     }
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-            <div className="grid grid-cols-2 gap-6">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Lifetime PnL</h3>
-                    <div className="h-40">
-                        <AreaLineChart values={curveStats.equityCurve} positive={curveStats.endingEquity >= 0} />
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+            <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-2 text-zinc-300">
+                        <BarChart3 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-sm font-semibold uppercase tracking-wider">Analytics Filters</span>
                     </div>
-                    <div className="mt-4 flex items-center justify-center">
-                        <span className={cn("text-2xl font-black", stats.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                            {formatCurrencySigned(stats.totalPnl)}
-                        </span>
-                    </div>
-                </motion.div>
 
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Drawdown($)</h3>
-                    <div className="h-40">
-                        <AreaLineChart values={curveStats.drawdownCurve} positive={false} />
-                    </div>
-                    <div className="mt-4 flex items-center justify-center">
-                        <span className="text-2xl font-black text-rose-400">
-                            {formatCurrencySigned(curveStats.largestDrawdown)}
-                        </span>
-                    </div>
-                </motion.div>
-            </div>
+                    <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700 text-xs font-semibold text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
+                    >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Reset filters
+                    </button>
+                </div>
 
-            <div className="grid grid-cols-5 gap-4">
-                <MetricCard title="Total PnL" value={formatCurrencySigned(stats.totalPnl)} icon={DollarSign} color={stats.totalPnl >= 0 ? "emerald" : "rose"} delay={0.05} />
-                <MetricCard title="Volume Traded" value={formatCurrency(stats.totalVolume)} icon={BarChart3} color="blue" delay={0.1} />
-                <MetricCard title="Avg Trade Size" value={formatCurrency(stats.totalVolume / Math.max(1, stats.totalTrades))} icon={Activity} color="violet" delay={0.15} />
-                <MetricCard title="Avg Hold Time" value={formatHoldTime(stats.avgHoldTime)} icon={Clock} color="amber" delay={0.2} />
-                <MetricCard title="Win Rate" value={`${stats.winRate.toFixed(1)}%`} icon={Percent} color="emerald" delay={0.25} />
-                <MetricCard title="Average Win" value={formatCurrency(stats.avgWin)} icon={TrendingUp} color="emerald" delay={0.3} />
-                <MetricCard title="Average Loss" value={formatCurrency(stats.avgLoss)} icon={TrendingDown} color="rose" delay={0.35} />
-                <MetricCard title="Sharpe Ratio" value={advancedMetrics.sharpeRatio.toFixed(2)} icon={Activity} color="zinc" delay={0.4} />
-                <MetricCard title="Sortino Ratio" value={advancedMetrics.sortinoRatio.toFixed(2)} icon={Activity} color="zinc" delay={0.45} />
-                <MetricCard title="Profit Factor" value={stats.profitFactor === Infinity ? "∞" : stats.profitFactor.toFixed(2)} icon={Target} color="emerald" delay={0.5} />
-                <MetricCard title="Average MAE" value={formatCurrency(advancedMetrics.avgMae)} icon={TrendingDown} color="rose" delay={0.55} />
-                <MetricCard title="Average MFE" value={formatCurrency(advancedMetrics.avgMfe)} icon={TrendingUp} color="emerald" delay={0.6} />
-                <MetricCard title="MFE/MAE Ratio" value={advancedMetrics.mfeMaeRatio.toFixed(2)} icon={Activity} color="zinc" delay={0.65} />
-                <MetricCard title="Expected Value" value={formatCurrencySigned(advancedMetrics.expectedValue)} icon={DollarSign} color={advancedMetrics.expectedValue >= 0 ? "emerald" : "rose"} delay={0.7} />
-                <MetricCard title="Total Fees" value={formatCurrency(advancedMetrics.totalFees)} icon={DollarSign} color="rose" delay={0.75} />
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8 gap-2.5">
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Status</span>
+                        <select
+                            value={filters.status}
+                            onChange={(event) => updateFilters({ status: event.target.value as JournalFilters["status"] })}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            <option value="all">All</option>
+                            <option value="open">Open</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                    </label>
 
-            <div className="grid grid-cols-2 gap-6">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Order Types & Fees</h3>
-                    <div className="grid grid-cols-4 gap-4 text-center">
-                        <div>
-                            <p className="text-xs text-zinc-500">Fees (limit)</p>
-                            <p className="text-lg font-bold text-rose-400">{formatCurrency(advancedMetrics.limitFees)}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs text-zinc-500">Fees (market)</p>
-                            <p className="text-lg font-bold text-rose-400">{formatCurrency(advancedMetrics.marketFees)}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs text-zinc-500">Unclassified</p>
-                            <p className="text-lg font-bold text-zinc-300">{formatCurrency(advancedMetrics.unknownFees)}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs text-zinc-500">Total Fees</p>
-                            <p className="text-lg font-bold text-rose-400">{formatCurrency(advancedMetrics.totalFees)}</p>
-                        </div>
-                    </div>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.35 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Funding</h3>
-                    <div className="grid grid-cols-3 gap-4 text-center">
-                        <div>
-                            <p className="text-xs text-zinc-500">Funding Paid</p>
-                            <p className="text-lg font-bold text-rose-400">{formatCurrency(fundingPaid)}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs text-zinc-500">Funding Received</p>
-                            <p className="text-lg font-bold text-emerald-400">{formatCurrency(fundingReceived)}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs text-zinc-500">Net Funding</p>
-                            <p className={cn("text-lg font-bold", advancedMetrics.totalFunding >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                {formatCurrencySigned(advancedMetrics.totalFunding)}
-                            </p>
-                        </div>
-                    </div>
-                </motion.div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">PnL by Hold Time</h3>
-                    <HorizontalBarChart data={holdTimeData} maxValue={maxHoldTimePnl} />
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.45 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Trading Session Analysis</h3>
-                    <HorizontalBarChart data={sessionData} maxValue={maxSessionPnl} />
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.5 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Day of Week</h3>
-                    <HorizontalBarChart data={dayData} maxValue={maxDayPnl} />
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.55 }}
-                    className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-                >
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Best Trading Hours</h3>
-                    <div className="space-y-2">
-                        {hourlyData
-                            .filter((d) => d.count > 0)
-                            .sort((a, b) => b.value - a.value)
-                            .slice(0, 5)
-                            .map((d) => (
-                                <div key={d.label} className="flex items-center justify-between py-2 border-b border-zinc-800/30">
-                                    <span className="text-sm text-zinc-400">{d.label}</span>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-xs text-zinc-500">{d.count} trades</span>
-                                        <span className={cn("text-sm font-bold", d.value >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                            ${Math.abs(d.value).toFixed(0)}
-                                        </span>
-                                    </div>
-                                </div>
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Ticker</span>
+                        <select
+                            value={filters.symbols[0] ?? "all"}
+                            onChange={(event) => {
+                                const value = event.target.value;
+                                updateFilters({ symbols: value === "all" ? [] : [value] });
+                            }}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            <option value="all">All symbols</option>
+                            {allSymbols.map((symbol) => (
+                                <option key={symbol} value={symbol}>
+                                    {symbol}
+                                </option>
                             ))}
+                        </select>
+                    </label>
+
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Date</span>
+                        <select
+                            value={dateRange.preset}
+                            onChange={(event) => setDateRange(createDateRangeFromPreset(event.target.value, dateRange.groupBy))}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            {DATE_PRESETS.map((preset) => (
+                                <option key={preset.id} value={preset.id}>
+                                    {preset.label}
+                                </option>
+                            ))}
+                            {dateRange.preset === "custom" && <option value="custom">Custom range</option>}
+                        </select>
+                    </label>
+
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Side</span>
+                        <select
+                            value={filters.side}
+                            onChange={(event) => updateFilters({ side: event.target.value as JournalFilters["side"] })}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            <option value="all">All</option>
+                            <option value="long">Long</option>
+                            <option value="short">Short</option>
+                        </select>
+                    </label>
+
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Exchange</span>
+                        <select
+                            value={filters.exchange || "all"}
+                            onChange={(event) => updateFilters({ exchange: event.target.value === "all" ? "" : event.target.value })}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            <option value="all">All exchanges</option>
+                            {allExchanges.map((exchange) => (
+                                <option key={exchange} value={exchange}>
+                                    {exchange}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Tags</span>
+                        <select
+                            value={filters.tags[0] ?? "all"}
+                            onChange={(event) => {
+                                const value = event.target.value as StrategyTagId | "all";
+                                updateFilters({ tags: value === "all" ? [] : [value] });
+                            }}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            <option value="all">All tags</option>
+                            {STRATEGY_TAGS.map((tag) => (
+                                <option key={tag.id} value={tag.id}>
+                                    {tag.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Hold Time</span>
+                        <select
+                            value={activeHoldFilter}
+                            onChange={(event) => {
+                                const next = HOLD_FILTER_OPTIONS.find((option) => option.id === event.target.value);
+                                if (!next) return;
+                                updateFilters({ minHoldTime: next.min, maxHoldTime: next.max });
+                            }}
+                            className="w-full h-9 rounded-lg bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-300 px-2.5"
+                        >
+                            {HOLD_FILTER_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="space-y-1">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Tagged trades</span>
+                        <div className="h-9 px-2.5 rounded-lg border border-zinc-800 bg-zinc-900/50 text-sm text-zinc-300 flex items-center justify-between">
+                            <span>{Object.keys(annotations).length}</span>
+                            <span className="text-[10px] text-zinc-500">annotations</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/35 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-xl font-bold text-white">Lifetime PNL</h3>
+                        <span className="text-xs text-zinc-500">{dateRangeText}</span>
                     </div>
-                </motion.div>
+
+                    <div className="h-[210px]">
+                        <SeriesAreaChart points={curve.equity.points} positive={curve.equity.endingEquity >= 0} />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between">
+                        <span className={cn("text-xl font-black", stats.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400") }>
+                            {formatSignedCurrency(stats.totalPnl, preferences.hideBalances)}
+                        </span>
+                        <span className="text-xs text-zinc-500">{closedTrades.length} closed trades</span>
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/35 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-xl font-bold text-white">Drawdown($)</h3>
+                        <span className="text-xs text-zinc-500">{dateRangeText}</span>
+                    </div>
+
+                    <div className="h-[210px]">
+                        <SeriesAreaChart points={curve.drawdown.points} positive={false} />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between">
+                        <span className="text-xl font-black text-rose-400">
+                            {formatSignedCurrency(curve.equity.largestDrawdown, preferences.hideBalances)}
+                        </span>
+                        <span className="text-xs text-zinc-500">Largest drawdown</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/35 p-4">
+                    <h3 className="text-xl font-bold text-white mb-3">Metrics</h3>
+
+                    <div className="space-y-1 text-sm">
+                        {[
+                            { label: "Total PnL ($)", value: formatSignedCurrency(stats.totalPnl, preferences.hideBalances), positive: stats.totalPnl >= 0 },
+                            { label: "Win Rate", value: `${stats.winRate.toFixed(2)}%` },
+                            { label: "Average Win", value: formatCurrency(stats.avgWin, preferences.hideBalances), positive: true },
+                            { label: "Average Loss", value: formatSignedCurrency(-stats.avgLoss, preferences.hideBalances), positive: false },
+                            {
+                                label: "Average MAE",
+                                value: advancedMetrics.maeSamples > 0
+                                    ? formatCurrency(advancedMetrics.avgMae, preferences.hideBalances)
+                                    : "N/A",
+                                positive: false
+                            },
+                            {
+                                label: "Average MFE",
+                                value: advancedMetrics.mfeSamples > 0
+                                    ? formatCurrency(advancedMetrics.avgMfe, preferences.hideBalances)
+                                    : "N/A",
+                                positive: true
+                            },
+                            {
+                                label: "MFE/MAE Ratio",
+                                value: advancedMetrics.maeSamples > 0 && advancedMetrics.mfeSamples > 0
+                                    ? advancedMetrics.mfeMaeRatio.toFixed(2)
+                                    : "N/A"
+                            },
+                            { label: "Volume Traded", value: formatCurrency(stats.totalVolume, preferences.hideBalances) },
+                            { label: "Average Trade Size", value: formatCurrency(stats.totalVolume / Math.max(1, stats.totalTrades), preferences.hideBalances) },
+                            { label: "Average Hold Time", value: formatDuration(stats.avgHoldTime) },
+                            { label: "Sharpe Ratio", value: advancedMetrics.sharpeRatio.toFixed(2) },
+                            { label: "Sortino Ratio", value: advancedMetrics.sortinoRatio.toFixed(2) },
+                            { label: "Profit Factor", value: stats.profitFactor === Infinity ? "∞" : stats.profitFactor.toFixed(2) },
+                            { label: "Expected Value", value: formatSignedCurrency(advancedMetrics.expectedValue, preferences.hideBalances), positive: advancedMetrics.expectedValue >= 0 },
+                        ].map((row) => (
+                            <div
+                                key={row.label}
+                                className="grid grid-cols-[1fr_auto] gap-3 px-3 py-1.5 rounded bg-white/[0.03] border border-white/[0.03]"
+                            >
+                                <span className="text-zinc-400">{row.label}</span>
+                                <span className={cn(
+                                    "font-semibold",
+                                    row.positive === true && "text-emerald-400",
+                                    row.positive === false && "text-rose-400",
+                                    row.positive === undefined && "text-zinc-200"
+                                )}>
+                                    {row.value}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/35 p-4">
+                    <h3 className="text-xl font-bold text-white mb-3">Order types and Funding</h3>
+
+                    <div className="space-y-1 text-sm mb-4">
+                        {[
+                            {
+                                label: "Fees (limit)",
+                                value: formatSignedCurrency(-advancedMetrics.limitFees, preferences.hideBalances),
+                                tone: "text-rose-400",
+                                rightLabel: "Funding Paid",
+                                rightValue: formatSignedCurrency(-advancedMetrics.fundingPaid, preferences.hideBalances),
+                                rightTone: "text-rose-400",
+                            },
+                            {
+                                label: "Fees (market)",
+                                value: formatSignedCurrency(-advancedMetrics.marketFees, preferences.hideBalances),
+                                tone: "text-rose-400",
+                                rightLabel: "Funding Received",
+                                rightValue: formatSignedCurrency(advancedMetrics.fundingReceived, preferences.hideBalances),
+                                rightTone: "text-emerald-400",
+                            },
+                            {
+                                label: "Total Fees",
+                                value: formatSignedCurrency(-advancedMetrics.totalFees, preferences.hideBalances),
+                                tone: "text-rose-400",
+                                rightLabel: "Net Funding",
+                                rightValue: formatSignedCurrency(advancedMetrics.netFunding, preferences.hideBalances),
+                                rightTone: advancedMetrics.netFunding >= 0 ? "text-emerald-400" : "text-rose-400",
+                            },
+                        ].map((row) => (
+                            <div key={row.label} className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-1.5 rounded bg-white/[0.03] border border-white/[0.03]">
+                                    <span className="text-zinc-400">{row.label}</span>
+                                    <span className={cn("font-semibold", row.tone)}>{row.value}</span>
+                                </div>
+                                <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-1.5 rounded bg-white/[0.03] border border-white/[0.03]">
+                                    <span className="text-zinc-400">{row.rightLabel}</span>
+                                    <span className={cn("font-semibold", row.rightTone)}>{row.rightValue}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+                        <div className="rounded-xl border border-zinc-800/70 p-3 bg-zinc-950/30">
+                            <p className="text-sm font-semibold text-zinc-200 mb-1">Limit vs Market orders by volume</p>
+                            <p className="text-xs text-zinc-500 mb-3">
+                                Maker {advancedMetrics.makerVolume.toFixed(0)} / Market {advancedMetrics.marketVolume.toFixed(0)}
+                            </p>
+                            <RatioDonut
+                                left={advancedMetrics.makerVolume}
+                                right={advancedMetrics.marketVolume + advancedMetrics.unknownVolume}
+                                leftLabel="Maker volume"
+                                rightLabel="Market + unknown"
+                            />
+                        </div>
+
+                        <div className="rounded-xl border border-zinc-800/70 p-3 bg-zinc-950/30">
+                            <p className="text-sm font-semibold text-zinc-200 mb-1">Funding paid vs received</p>
+                            <p className="text-xs text-zinc-500 mb-3">
+                                Paid {advancedMetrics.fundingPaid.toFixed(2)} / Received {advancedMetrics.fundingReceived.toFixed(2)}
+                            </p>
+                            <RatioDonut
+                                left={advancedMetrics.fundingReceived}
+                                right={advancedMetrics.fundingPaid}
+                                leftLabel="Funding received"
+                                rightLabel="Funding paid"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <AnalysisChartCard
+                    title="PnL by Holdtime"
+                    data={holdTimeData}
+                    mode={holdMode}
+                    onModeChange={setHoldMode}
+                    hideBalances={preferences.hideBalances}
+                    controls={
+                        <div className="inline-flex items-center gap-2 text-xs text-zinc-500">
+                            <Clock3 className="w-3.5 h-3.5" />
+                            <span>Type:</span>
+                            <span className="text-zinc-200 font-semibold">Regular</span>
+                        </div>
+                    }
+                />
+
+                <AnalysisChartCard
+                    title="Trading session analysis"
+                    data={sessionData}
+                    mode={sessionMode}
+                    onModeChange={setSessionMode}
+                    hideBalances={preferences.hideBalances}
+                    controls={
+                        <div className="flex items-center gap-3">
+                            <label className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
+                                <input
+                                    type="checkbox"
+                                    checked={includeWeekends}
+                                    onChange={(event) => setIncludeWeekends(event.target.checked)}
+                                    className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 text-emerald-500"
+                                />
+                                Include weekends
+                            </label>
+                            <div className="inline-flex rounded-lg border border-zinc-800 overflow-hidden">
+                                {(["open", "close"] as DateGroupBy[]).map((value) => (
+                                    <button
+                                        key={value}
+                                        type="button"
+                                        onClick={() => setSessionGroupBy(value)}
+                                        className={cn(
+                                            "px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
+                                            sessionGroupBy === value
+                                                ? "bg-zinc-700 text-white"
+                                                : "bg-zinc-900/30 text-zinc-500 hover:text-zinc-300"
+                                        )}
+                                    >
+                                        Trade {value}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    }
+                />
+
+                <AnalysisChartCard
+                    title="Day of Week"
+                    data={dayOfWeekData}
+                    mode={dayMode}
+                    onModeChange={setDayMode}
+                    hideBalances={preferences.hideBalances}
+                    controls={
+                        <div className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
+                            <CalendarDays className="w-3.5 h-3.5" />
+                            UTC
+                        </div>
+                    }
+                />
+
+                <AnalysisChartCard
+                    title="Time of Day (UTC+0)"
+                    data={timeOfDayData}
+                    mode={timeMode}
+                    onModeChange={setTimeMode}
+                    hideBalances={preferences.hideBalances}
+                    controls={
+                        <div className="inline-flex rounded-lg border border-zinc-800 overflow-hidden">
+                            {(["open", "close"] as DateGroupBy[]).map((value) => (
+                                <button
+                                    key={value}
+                                    type="button"
+                                    onClick={() => setTimeGroupBy(value)}
+                                    className={cn(
+                                        "px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
+                                        timeGroupBy === value
+                                            ? "bg-zinc-700 text-white"
+                                            : "bg-zinc-900/30 text-zinc-500 hover:text-zinc-300"
+                                    )}
+                                >
+                                    Trade {value}
+                                </button>
+                            ))}
+                        </div>
+                    }
+                />
+            </div>
+
+            <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/35 px-4 py-3">
+                <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                        <p className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-emerald-400" />
+                            Analytics Summary
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                            {closedTrades.length} closed trades analyzed, {stats.winningTrades} wins, {stats.losingTrades} losses, {stats.breakevenTrades} breakeven.
+                        </p>
+                    </div>
+                    <div className="text-right">
+                        <p className={cn("text-lg font-black", stats.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                            {formatSignedCurrency(stats.totalPnl, preferences.hideBalances)}
+                        </p>
+                        <p className="text-xs text-zinc-500">Net from filtered view</p>
+                    </div>
+                </div>
             </div>
         </motion.div>
     );

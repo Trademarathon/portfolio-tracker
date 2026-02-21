@@ -36,6 +36,9 @@ export interface TradeAnnotation {
     tradeId: string; // Links to the trade in history
     strategyTag: StrategyTagId;
     customTagName?: string; // If strategyTag is 'custom'
+    playbookId?: string;
+    reviewed?: boolean;
+    reviewedAt?: number;
     executionQuality: ExecutionQuality;
     notes: string; // Free-form "Institutional Context"
     marketProfile?: MarketProfileObservation;

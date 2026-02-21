@@ -32,7 +32,8 @@ export function DayReport({ trades, stats }: DayReportProps) {
         
         const totalPnl = closedDayTrades.reduce((sum, t) => sum + (t.realizedPnl || 0), 0);
         const avgPnl = closedDayTrades.length > 0 ? totalPnl / closedDayTrades.length : 0;
-        const winRate = closedDayTrades.length > 0 ? (wins.length / closedDayTrades.length) * 100 : 0;
+        const decisiveTrades = wins.length + losses.length;
+        const winRate = decisiveTrades > 0 ? (wins.length / decisiveTrades) * 100 : 0;
 
         return {
             totalTrades: closedDayTrades.length,

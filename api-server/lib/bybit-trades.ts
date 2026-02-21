@@ -55,6 +55,8 @@ export interface NormalizedCexTrade {
   txHash: string;
   info: Record<string, unknown>;
   sourceType: "cex";
+  instrumentType: "future" | "crypto";
+  marketType: "perp" | "future" | "spot";
 }
 
 function toBybitClient(apiKey: string, secret: string, mode: BybitMode = "default") {
@@ -64,6 +66,34 @@ function toBybitClient(apiKey: string, secret: string, mode: BybitMode = "defaul
   return getExchangeInstance("bybit", apiKey, secret, {
     options: { defaultType }
   });
+}
+
+function classifyBybitTrade(item: any): { instrumentType: "future" | "crypto"; marketType: "perp" | "future" | "spot" } {
+  const rawSymbol = String(item?.symbol || item?.info?.symbol || "").toUpperCase();
+  const hint = [
+    item?.marketType,
+    item?.category,
+    item?.contractType,
+    item?.type,
+    item?.info?.category,
+    item?.info?.marketType,
+    item?.info?.instType,
+  ]
+    .filter(Boolean)
+    .map((v) => String(v).toLowerCase())
+    .join(" ");
+
+  const isDerivative =
+    /PERP|SWAP|FUTURES|CONTRACT|:USDT|:USD|USDTM|UMCBL|DMCBL/i.test(rawSymbol) ||
+    /(perp|swap|future|futures|linear|inverse|contract|derivative)/i.test(hint) ||
+    item?.leverage !== undefined ||
+    item?.info?.positionIdx !== undefined;
+
+  if (isDerivative) {
+    const marketType = /(future|futures|contract)/i.test(hint) ? "future" : "perp";
+    return { instrumentType: "future", marketType };
+  }
+  return { instrumentType: "crypto", marketType: "spot" };
 }
 
 function normalizeTrade(item: any, exchange = "bybit"): NormalizedCexTrade | null {
@@ -80,6 +110,7 @@ function normalizeTrade(item: any, exchange = "bybit"): NormalizedCexTrade | nul
 
   const feeCost = typeof item?.fee?.cost === "number" ? item.fee.cost : (price * amount * 0.001);
   const feeCurrency = String(item?.fee?.currency || (rawSymbol.includes("/") ? rawSymbol.split("/")[1] : "USDT") || "USDT");
+  const classification = classifyBybitTrade(item);
 
   return {
     id: String(item?.id || `${exchange}-${rawSymbol || symbol}-${timestamp}-${side}-${amount}-${price}`),
@@ -113,6 +144,8 @@ function normalizeTrade(item: any, exchange = "bybit"): NormalizedCexTrade | nul
     txHash: String(item?.info?.txId || item?.info?.tradeId || item?.id || `${exchange}-${timestamp}`),
     info: (item?.info && typeof item.info === "object" ? item.info : {}) as Record<string, unknown>,
     sourceType: "cex",
+    instrumentType: classification.instrumentType,
+    marketType: classification.marketType,
   };
 }
 
@@ -159,14 +192,23 @@ export async function fetchBybitTradesWithFallback(params: {
   symbols?: string[];
   accountWideLimit?: number;
   symbolLimit?: number;
+  daysBack?: number;
+  pageLimitPerWindow?: number;
 }): Promise<{ trades: NormalizedCexTrade[]; diagnostics: BybitTradeDiagnostics }> {
   const {
     apiKey,
     secret,
-    symbols = DEFAULT_BYBIT_SYMBOLS,
-    accountWideLimit = 120,
-    symbolLimit = 40,
+    symbols: _symbols = DEFAULT_BYBIT_SYMBOLS,
+    accountWideLimit: _accountWideLimit = 120,
+    symbolLimit: _symbolLimit = 40,
+    daysBack = 30,
+    pageLimitPerWindow = 10,
   } = params;
+
+  const safeDaysBack = Number.isFinite(daysBack) ? Math.max(1, Math.min(60, Math.floor(daysBack))) : 30;
+  const safePageLimitPerWindow = Number.isFinite(pageLimitPerWindow)
+    ? Math.max(1, Math.min(10, Math.floor(pageLimitPerWindow)))
+    : 10;
 
   const diagnostics: BybitTradeDiagnostics = {
     exchange: "bybit",
@@ -184,7 +226,6 @@ export async function fetchBybitTradesWithFallback(params: {
 
   const rawTrades: any[] = [];
   const msPerDay = 1000 * 60 * 60 * 24;
-  const daysBack = 30; // Fetch up to 30 days of history
 
   // Use the native V5 endpoint directly for each category
   // This avoids CCXT's default 7-day limitation and reliably gets all categories
@@ -204,11 +245,11 @@ export async function fetchBybitTradesWithFallback(params: {
       let endTime = Date.now();
       let startTime = endTime - 7 * msPerDay; // 7-day chunk is Bybit's max allowed
 
-      for (let i = 0; i < Math.ceil(daysBack / 7); i++) {
+      for (let i = 0; i < Math.ceil(safeDaysBack / 7); i++) {
         let cursor = undefined;
         let pageCount = 0;
 
-        while (pageCount < 10) { // Safety limit: up to 1000 trades per 7-day window
+        while (pageCount < safePageLimitPerWindow) { // Safety limit per 7-day window
           const req: any = {
             category,
             limit: 100,

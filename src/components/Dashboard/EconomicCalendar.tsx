@@ -387,6 +387,33 @@ export function EconomicCalendar({ className, compact = false, maxEvents = 6 }: 
                 return;
             }
 
+            // Fallback to verified TradingEconomics-backed feed when AI feed is empty/unavailable.
+            const fallbackRes = await apiFetch(
+                '/api/calendar/events',
+                {
+                    method: 'GET',
+                    cache: 'no-store',
+                },
+                12_000
+            );
+            const fallbackJson = await fallbackRes.json().catch(() => ({}));
+            const fallbackRawEvents: CalendarApiEvent[] = Array.isArray((fallbackJson as any).events)
+                ? (fallbackJson as any).events
+                : [];
+            const fallbackNormalized = normalizeApiEvents(fallbackRawEvents);
+            const fallbackLastUpdated = typeof (fallbackJson as any).lastUpdated === 'number'
+                ? (fallbackJson as any).lastUpdated
+                : nowMs;
+            const fallbackStale = Boolean((fallbackJson as any).stale);
+
+            if (fallbackRes.ok && fallbackNormalized.length > 0) {
+                setEvents(fallbackNormalized);
+                setLastFetchedAt(fallbackLastUpdated);
+                setFeedState(fallbackStale ? 'cached' : 'live');
+                writeCalendarCache(fallbackNormalized, fallbackLastUpdated);
+                return;
+            }
+
             const cached = readCalendarCache();
             if (cached && cached.events.length > 0) {
                 setEvents(cached.events);
@@ -537,7 +564,7 @@ export function EconomicCalendar({ className, compact = false, maxEvents = 6 }: 
                             }}
                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-bold hover:bg-emerald-500/30 transition-colors"
                         >
-                            Retry AI feed
+                            Retry feed
                         </button>
                     </div>
                 ) : (

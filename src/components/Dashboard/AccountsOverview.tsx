@@ -455,7 +455,7 @@ export function AccountsOverview({ assets, connections, onSelectAccount, selecte
                                                     <span className="text-[9px] text-amber-500 font-medium">
                                                         {acc.isCex ? 'Connection issue' : 'Unavailable'}
                                                     </span>
-                                                    <span className="text-[8px] text-zinc-500 max-w-[120px] truncate" title={(acc as ProcessedAccount).connectionError}>
+                                                    <span className="block text-[8px] text-zinc-500 max-w-[120px] truncate" title={(acc as ProcessedAccount).connectionError}>
                                                         {(acc as ProcessedAccount).connectionError}
                                                     </span>
                                                     {onRetryConnection && (

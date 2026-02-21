@@ -2,8 +2,9 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, X, Info, Calendar, Newspaper, AlertCircle, CheckCircle2, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { chatWithAI } from "@/lib/api/ai";
 
 interface AssetAIInsightProps {
     symbol: string;
@@ -11,60 +12,87 @@ interface AssetAIInsightProps {
     onClose: () => void;
 }
 
+type SectionKey = "fundamentals" | "unlocks" | "news";
+type Sentiment = "bullish" | "neutral" | "bearish";
+type Volatility = "low" | "medium" | "high";
+
+interface AssetInsightResult {
+    fundamentals: string;
+    unlocks: string;
+    news: string;
+    sentiment: Sentiment;
+    volatility: Volatility;
+    tags: string[];
+}
+
 export function AssetAIInsight({ symbol, isOpen, onClose }: AssetAIInsightProps) {
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [typedText, setTypedText] = useState("");
-    const [activeSection, setActiveSection] = useState<'fundamentals' | 'unlocks' | 'news'>('fundamentals');
+    const [activeSection, setActiveSection] = useState<SectionKey>("fundamentals");
+    const [insight, setInsight] = useState<AssetInsightResult>(() => buildFallbackInsight(symbol || "ASSET"));
+    const requestIdRef = useRef(0);
 
-    // Mock realistic data for major coins
-    const mockData: Record<string, any> = {
-        'BTC': {
-            fundamentals: "Digital gold. Finite supply (21M). Network security via Proof of Work. Institutional adoption rising.",
-            unlocks: "No unlocks - fully decentralized distribution since 2009.",
-            news: "ETF inflows hit record highs; Hashrate reaches new All-Time High."
-        },
-        'ETH': {
-            fundamentals: "World computer. Proof of Stake. L2 ecosystem dominates DeFi. Ultra-sound money (burn mechanism).",
-            unlocks: "Staking withdrawals live; steady supply flow.",
-            news: "Pectra upgrade development remains on track; L3 scaling gains traction."
-        },
-        'SOL': {
-            fundamentals: "High throughput L1. Monolithic architecture. Firedancer local testnet live. Strong retail base.",
-            unlocks: "Managed through validator inflation schedules; no major VC cliffs pending.",
-            news: "Daily active addresses surpass main competitors; Saga 2 pre-orders skyrocket."
-        }
-    };
-
-    const assetData = mockData[symbol] || {
-        fundamentals: "Promising Layer-1/DeFi protocol with growing ecosystem and unique scaling properties.",
-        unlocks: "Next major unlock in Q3 (approx. 2.5% of circulating supply).",
-        news: "Recent technical partnership announced; Social sentiment remains bullish."
-    };
+    const sectionText = useMemo(() => insight[activeSection], [insight, activeSection]);
 
     useEffect(() => {
-        if (isOpen) {
-            setLoading(true);
-            setTypedText("");
-            const timer = setTimeout(() => {
-                setLoading(false);
-            }, 1000);
-            return () => clearTimeout(timer);
-        }
+        if (!isOpen || !symbol) return;
+        const requestId = ++requestIdRef.current;
+        setLoading(true);
+        setError(null);
+        setTypedText("");
+        setActiveSection("fundamentals");
+
+        const today = new Date().toISOString().slice(0, 10);
+        const fetchInsight = async () => {
+            try {
+                const response = await chatWithAI({
+                    feature: "asset_ai_insight",
+                    jsonMode: true,
+                    temperature: 0.2,
+                    maxTokens: 320,
+                    messages: [
+                        {
+                            role: "system",
+                            content:
+                                "Return strict JSON only with keys fundamentals, unlocks, news, sentiment, volatility, tags. " +
+                                "Use concise plain-English lines for a trader. Sentiment must be bullish|neutral|bearish. " +
+                                "Volatility must be low|medium|high. tags should be 1-3 short labels.",
+                        },
+                        {
+                            role: "user",
+                            content: `Symbol: ${symbol}. Date: ${today}. Give a concise desk-level snapshot.`,
+                        },
+                    ],
+                });
+                if (requestId !== requestIdRef.current) return;
+                setInsight(parseInsight(response.content, symbol));
+            } catch (err) {
+                if (requestId !== requestIdRef.current) return;
+                setInsight(buildFallbackInsight(symbol));
+                setError(err instanceof Error ? err.message : "AI insight request failed");
+            } finally {
+                if (requestId === requestIdRef.current) setLoading(false);
+            }
+        };
+
+        void fetchInsight();
     }, [isOpen, symbol]);
 
-    // Typing effect for the selected section
     useEffect(() => {
-        if (!loading) {
-            const fullText = assetData[activeSection];
-            let i = 0;
-            const interval = setInterval(() => {
-                setTypedText(fullText.slice(0, i));
-                i++;
-                if (i > fullText.length) clearInterval(interval);
-            }, 15);
-            return () => clearInterval(interval);
+        if (!isOpen || loading) {
+            setTypedText("");
+            return;
         }
-    }, [loading, activeSection, symbol]);
+        const fullText = sectionText;
+        let i = 0;
+        const interval = setInterval(() => {
+            i += 2;
+            setTypedText(fullText.slice(0, i));
+            if (i >= fullText.length) clearInterval(interval);
+        }, 12);
+        return () => clearInterval(interval);
+    }, [loading, sectionText, isOpen, activeSection]);
 
     return (
         <AnimatePresence>
@@ -104,15 +132,15 @@ export function AssetAIInsight({ symbol, isOpen, onClose }: AssetAIInsightProps)
 
                         {/* Navigation */}
                         <div className="flex p-2 bg-black/40 gap-1">
-                            {[
-                                { id: 'fundamentals', icon: Info, label: 'Fundamentals' },
-                                { id: 'unlocks', icon: Calendar, label: 'Unlocks' },
-                                { id: 'news', icon: Newspaper, label: 'Alpha' }
-                            ].map((tab) => (
+                                {[
+                                    { id: 'fundamentals', icon: Info, label: 'Fundamentals' },
+                                    { id: 'unlocks', icon: Calendar, label: 'Unlocks' },
+                                    { id: 'news', icon: Newspaper, label: 'Alpha' }
+                                ].map((tab) => (
                                 <button
                                     key={tab.id}
                                     onClick={() => {
-                                        setActiveSection(tab.id as any);
+                                        setActiveSection(tab.id as SectionKey);
                                         setTypedText("");
                                     }}
                                     className={cn(
@@ -155,13 +183,42 @@ export function AssetAIInsight({ symbol, isOpen, onClose }: AssetAIInsightProps)
 
                                     {/* Action Chips */}
                                     <div className="flex flex-wrap gap-2 pt-4">
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-500">
-                                            <CheckCircle2 size={10} /> BULLISH SENTIMENT
+                                        <div
+                                            className={cn(
+                                                "flex items-center gap-1.5 px-2 py-1 rounded-full border text-[9px] font-black",
+                                                insight.sentiment === "bullish" && "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
+                                                insight.sentiment === "neutral" && "bg-zinc-500/10 border-zinc-500/30 text-zinc-300",
+                                                insight.sentiment === "bearish" && "bg-rose-500/10 border-rose-500/20 text-rose-400",
+                                            )}
+                                        >
+                                            <CheckCircle2 size={10} /> {insight.sentiment.toUpperCase()} SENTIMENT
                                         </div>
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[9px] font-black text-indigo-400">
-                                            <Zap size={10} /> HIGH VOLATILITY
+                                        <div
+                                            className={cn(
+                                                "flex items-center gap-1.5 px-2 py-1 rounded-full border text-[9px] font-black",
+                                                insight.volatility === "high" && "bg-rose-500/10 border-rose-500/20 text-rose-400",
+                                                insight.volatility === "medium" && "bg-amber-500/10 border-amber-500/20 text-amber-300",
+                                                insight.volatility === "low" && "bg-cyan-500/10 border-cyan-500/20 text-cyan-300",
+                                            )}
+                                        >
+                                            <Zap size={10} /> {insight.volatility.toUpperCase()} VOLATILITY
                                         </div>
+                                        {insight.tags.slice(0, 2).map((tag) => (
+                                            <div
+                                                key={tag}
+                                                className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-black text-primary"
+                                            >
+                                                <Sparkles size={10} /> {tag.toUpperCase()}
+                                            </div>
+                                        ))}
                                     </div>
+
+                                    {error && (
+                                        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-[10px] text-amber-200">
+                                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                            <span>{error}</span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -173,4 +230,83 @@ export function AssetAIInsight({ symbol, isOpen, onClose }: AssetAIInsightProps)
             )}
         </AnimatePresence>
     );
+}
+
+function parseInsight(raw: string, symbol: string): AssetInsightResult {
+    const fallback = buildFallbackInsight(symbol);
+    const parsed = extractJsonObject(raw);
+    if (!parsed) {
+        return {
+            ...fallback,
+            fundamentals: cleanLine(raw, fallback.fundamentals),
+        };
+    }
+    return {
+        fundamentals: cleanLine(parsed.fundamentals, fallback.fundamentals),
+        unlocks: cleanLine(parsed.unlocks, fallback.unlocks),
+        news: cleanLine(parsed.news, fallback.news),
+        sentiment: toSentiment(parsed.sentiment),
+        volatility: toVolatility(parsed.volatility),
+        tags: toTags(parsed.tags),
+    };
+}
+
+function extractJsonObject(raw: string): Record<string, unknown> | null {
+    const text = String(raw || "").trim();
+    if (!text) return null;
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+    const candidate = fenced || text;
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
+    try {
+        const parsed = JSON.parse(candidate.slice(start, end + 1));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return parsed as Record<string, unknown>;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+function cleanLine(value: unknown, fallback: string): string {
+    const text = typeof value === "string" ? value.trim() : "";
+    return text ? text.replace(/\s+/g, " ") : fallback;
+}
+
+function toSentiment(value: unknown): Sentiment {
+    const v = String(value || "").toLowerCase();
+    if (v === "bullish" || v === "bearish") return v;
+    return "neutral";
+}
+
+function toVolatility(value: unknown): Volatility {
+    const v = String(value || "").toLowerCase();
+    if (v === "low" || v === "high") return v;
+    return "medium";
+}
+
+function toTags(value: unknown): string[] {
+    const raw = Array.isArray(value)
+        ? value
+        : typeof value === "string"
+            ? value.split(/[,\n]/)
+            : [];
+    return raw
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean)
+        .slice(0, 3);
+}
+
+function buildFallbackInsight(symbol: string): AssetInsightResult {
+    const cleanSymbol = (symbol || "ASSET").toUpperCase();
+    return {
+        fundamentals: `${cleanSymbol} fundamentals are available but no live AI detail could be generated right now.`,
+        unlocks: `Unlock schedule and emissions for ${cleanSymbol} should be checked before sizing new risk.`,
+        news: `No fresh catalyst summary returned. Review latest protocol, exchange, and macro headlines for ${cleanSymbol}.`,
+        sentiment: "neutral",
+        volatility: "medium",
+        tags: ["watchlist", "risk-check"],
+    };
 }

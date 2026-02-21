@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries, type IChartApi, type ISeriesApi, type CandlestickData, type HistogramData, type LineData, type UTCTimestamp } from 'lightweight-charts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries, AreaSeries, type IChartApi, type ISeriesApi, type CandlestickData, type HistogramData, type LineData, type UTCTimestamp } from 'lightweight-charts';
 
 type LightweightTheme = {
     layout: {
@@ -41,8 +41,10 @@ const DEFAULT_THEME: LightweightTheme = {
 
 const BINANCE_KLINES = 'https://api.binance.com/api/v3/klines';
 const BYBIT_KLINES = 'https://api.bybit.com/v5/market/kline';
+const LOWER_PRICE_SCALE_ID = 'lower';
 
 type Kline = [number, string, string, string, string, string, number, ...unknown[]];
+type ChartInterval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
 function parseTvSymbol(tvSymbol: string): { exchange: string; symbol: string } {
     if (!tvSymbol || !tvSymbol.includes(':')) {
@@ -78,8 +80,16 @@ async function fetchBybitKlines(symbol: string, interval = '60', limit = 500, co
     const url = `${BYBIT_KLINES}?category=linear&symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Bybit klines failed');
-    const json = (await res.json()) as { result?: { list?: [string, string, string, string, string, string, ...unknown[]][] } };
+    const json = (await res.json()) as {
+        retCode?: number;
+        retMsg?: string;
+        result?: { list?: [string, string, string, string, string, string, ...unknown[]][] };
+    };
+    if (Number(json?.retCode || 0) !== 0) {
+        throw new Error(`Bybit klines failed (${json?.retMsg || json?.retCode || 'unknown'})`);
+    }
     const list = json?.result?.list ?? [];
+    if (!list.length) throw new Error('Bybit returned empty kline set');
     const upColor = colors?.up || DEFAULT_THEME.upColor;
     const downColor = colors?.down || DEFAULT_THEME.downColor;
     const candle: CandlestickData<UTCTimestamp>[] = [];
@@ -99,12 +109,12 @@ async function fetchBybitKlines(symbol: string, interval = '60', limit = 500, co
     return { candle, volume };
 }
 
-async function fetchHyperliquidFallbackKlines(symbol: string, interval = '1h', colors?: { up: string; down: string }): Promise<{ candle: CandlestickData<UTCTimestamp>[]; volume: HistogramData<UTCTimestamp>[] }> {
+async function fetchHyperliquidFallbackKlines(symbol: string, interval: ChartInterval = '1h', colors?: { up: string; down: string }): Promise<{ candle: CandlestickData<UTCTimestamp>[]; volume: HistogramData<UTCTimestamp>[] }> {
     const s = (symbol || '').toUpperCase().trim();
     const bybitPair = s.endsWith('USDT') ? s : `${s}USDT`;
     const binancePair = bybitPair;
-    const bybitInterval = interval === '5m' ? '5' : interval === '15m' ? '15' : interval === '1h' ? '60' : interval === '4h' ? '240' : interval === '1d' ? 'D' : '60';
-    const binanceInterval = interval === '5m' ? '5m' : interval === '15m' ? '15m' : interval === '1h' ? '1h' : interval === '4h' ? '4h' : interval === '1d' ? '1d' : '1h';
+    const bybitInterval = interval === '1m' ? '1' : interval === '5m' ? '5' : interval === '15m' ? '15' : interval === '1h' ? '60' : interval === '4h' ? '240' : interval === '1d' ? 'D' : '60';
+    const binanceInterval = interval === '1m' ? '1m' : interval === '5m' ? '5m' : interval === '15m' ? '15m' : interval === '1h' ? '1h' : interval === '4h' ? '4h' : interval === '1d' ? '1d' : '1h';
 
     // Try Bybit first, then Binance as fallback for broader pair coverage.
     try {
@@ -156,12 +166,18 @@ export function ScreenerLightweightChart({
     showAvgSell = true,
     showEntry = true,
     showVolume = true,
+    lowerPaneMode = 'atr',
+    positionSize,
+    entryTimestamp,
+    exitTimestamp,
+    exitPrice,
     side,
     onLoadError,
+    onCandlesLoaded,
 }: {
     symbol?: string;
     symbolKey?: string;
-    interval?: '5m' | '15m' | '1h' | '4h' | '1d';
+    interval?: ChartInterval;
     entryPrice?: number;
     avgBuyPrice?: number;
     avgSellPrice?: number;
@@ -169,14 +185,20 @@ export function ScreenerLightweightChart({
     showAvgSell?: boolean;
     showEntry?: boolean;
     showVolume?: boolean;
+    lowerPaneMode?: 'atr' | 'pnl' | 'none';
+    positionSize?: number;
+    entryTimestamp?: number;
+    exitTimestamp?: number;
+    exitPrice?: number;
     side?: string;
     onLoadError?: (error: string) => void;
+    onCandlesLoaded?: (candles: CandlestickData<UTCTimestamp>[]) => void;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
     const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-    const atrSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const lowerSeriesRef = useRef<ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
     const priceLinesRef = useRef<Array<{ price: number; title: string }>>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -208,7 +230,7 @@ export function ScreenerLightweightChart({
         return list;
     }, [avgBuyPrice, avgSellPrice, entryPrice, fallbackEntryTitle, normalizedSide, showAvgBuy, showAvgSell, showEntry]);
 
-    const buildAtr14 = (candles: CandlestickData<UTCTimestamp>[]): LineData<UTCTimestamp>[] => {
+    const buildAtr14 = useCallback((candles: CandlestickData<UTCTimestamp>[]): LineData<UTCTimestamp>[] => {
         const period = 14;
         if (candles.length < period + 1) return [];
         const trueRanges: number[] = [];
@@ -231,7 +253,44 @@ export function ScreenerLightweightChart({
             out.push({ time: candles[i].time, value: atr });
         }
         return out;
-    };
+    }, []);
+
+    const buildPositionPnl = useCallback((candles: CandlestickData<UTCTimestamp>[]): LineData<UTCTimestamp>[] => {
+        if (!candles.length) return [];
+        const qty = Math.abs(Number(positionSize || 0));
+        if (!Number.isFinite(qty) || qty <= 0) return [];
+
+        const isShort = normalizedSide === 'sell' || normalizedSide === 'short';
+        const defaultEntryPrice = Number(entryPrice || candles[0].open || candles[0].close || 0);
+        if (!Number.isFinite(defaultEntryPrice) || defaultEntryPrice <= 0) return [];
+
+        const entrySec = Number.isFinite(Number(entryTimestamp))
+            ? Math.floor(Number(entryTimestamp) / 1000)
+            : null;
+        const exitSec = Number.isFinite(Number(exitTimestamp))
+            ? Math.floor(Number(exitTimestamp) / 1000)
+            : null;
+        const validExitPrice = Number(exitPrice);
+        const hasExit = Number.isFinite(validExitPrice) && validExitPrice > 0;
+        const realized = hasExit
+            ? (isShort ? (defaultEntryPrice - validExitPrice) : (validExitPrice - defaultEntryPrice)) * qty
+            : null;
+
+        return candles.map((bar) => {
+            if (entrySec !== null && bar.time < entrySec) {
+                return { time: bar.time, value: 0 };
+            }
+
+            if (exitSec !== null && realized !== null && bar.time >= exitSec) {
+                return { time: bar.time, value: realized };
+            }
+
+            const mark = isShort
+                ? (defaultEntryPrice - bar.close) * qty
+                : (bar.close - defaultEntryPrice) * qty;
+            return { time: bar.time, value: mark };
+        });
+    }, [positionSize, normalizedSide, entryPrice, entryTimestamp, exitTimestamp, exitPrice]);
 
     useEffect(() => {
         const readSettings = () => {
@@ -258,21 +317,37 @@ export function ScreenerLightweightChart({
 
         setError(null);
         setLoading(true);
+        onCandlesLoaded?.([]);
 
         const load = async () => {
             try {
                 let candle: CandlestickData<UTCTimestamp>[];
                 let volume: HistogramData<UTCTimestamp>[];
-                const binanceInterval = interval === '5m' ? '5m' : interval === '15m' ? '15m' : interval === '1h' ? '1h' : interval === '4h' ? '4h' : interval === '1d' ? '1d' : '1h';
-                const bybitInterval = interval === '5m' ? '5' : interval === '15m' ? '15' : interval === '1h' ? '60' : interval === '4h' ? '240' : interval === '1d' ? 'D' : '60';
+                const binanceInterval = interval === '1m' ? '1m' : interval === '5m' ? '5m' : interval === '15m' ? '15m' : interval === '1h' ? '1h' : interval === '4h' ? '4h' : interval === '1d' ? '1d' : '1h';
+                const bybitInterval = interval === '1m' ? '1' : interval === '5m' ? '5' : interval === '15m' ? '15' : interval === '1h' ? '60' : interval === '4h' ? '240' : interval === '1d' ? 'D' : '60';
                 if (exchange === 'BINANCE') {
-                    const data = await fetchBinanceKlines(pair, binanceInterval, 500, { up: chartTheme.upColor, down: chartTheme.downColor });
-                    candle = data.candle;
-                    volume = data.volume;
+                    try {
+                        const data = await fetchBinanceKlines(pair, binanceInterval, 500, { up: chartTheme.upColor, down: chartTheme.downColor });
+                        candle = data.candle;
+                        volume = data.volume;
+                    } catch {
+                        const bybitPair = pair.replace(/PERP$/i, 'USDT').replace(/\/+/g, '');
+                        const data = await fetchBybitKlines(bybitPair, bybitInterval, 500, { up: chartTheme.upColor, down: chartTheme.downColor });
+                        candle = data.candle;
+                        volume = data.volume;
+                    }
                 } else if (exchange === 'BYBIT') {
-                    const data = await fetchBybitKlines(pair, bybitInterval, 500, { up: chartTheme.upColor, down: chartTheme.downColor });
-                    candle = data.candle;
-                    volume = data.volume;
+                    try {
+                        const bybitPair = pair.replace(/PERP$/i, 'USDT').replace(/\/+/g, '');
+                        const data = await fetchBybitKlines(bybitPair, bybitInterval, 500, { up: chartTheme.upColor, down: chartTheme.downColor });
+                        candle = data.candle;
+                        volume = data.volume;
+                    } catch {
+                        const binancePair = pair.replace(/PERP$/i, 'USDT').replace(/\/+/g, '');
+                        const data = await fetchBinanceKlines(binancePair, binanceInterval, 500, { up: chartTheme.upColor, down: chartTheme.downColor });
+                        candle = data.candle;
+                        volume = data.volume;
+                    }
                 } else if (exchange === 'HYPERLIQUID') {
                     const data = await fetchHyperliquidFallbackKlines(pair, interval, { up: chartTheme.upColor, down: chartTheme.downColor });
                     candle = data.candle;
@@ -281,6 +356,15 @@ export function ScreenerLightweightChart({
                     const err = 'Unsupported exchange for built-in chart';
                     setError(err);
                     onLoadError?.(err);
+                    onCandlesLoaded?.([]);
+                    setLoading(false);
+                    return;
+                }
+                if (!Array.isArray(candle) || candle.length === 0) {
+                    const err = `No chart candles found for ${pair}`;
+                    setError(err);
+                    onLoadError?.(err);
+                    onCandlesLoaded?.([]);
                     setLoading(false);
                     return;
                 }
@@ -293,7 +377,7 @@ export function ScreenerLightweightChart({
                     grid: chartTheme.grid,
                     width: containerEl.clientWidth,
                     height: containerEl.clientHeight,
-                    timeScale: { timeVisible: true, secondsVisible: false },
+                    timeScale: { timeVisible: true, secondsVisible: interval === '1m' || interval === '5m' },
                     rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
                     crosshair: {
                         vertLine: { visible: false, labelVisible: false },
@@ -310,6 +394,12 @@ export function ScreenerLightweightChart({
                     wickDownColor: chartTheme.wickDownColor,
                 });
                 candleSeries.setData(candle);
+                onCandlesLoaded?.(candle);
+                candleSeries.priceScale().applyOptions({
+                    scaleMargins: lowerPaneMode === 'none'
+                        ? { top: 0.05, bottom: showVolume ? 0.2 : 0.08 }
+                        : { top: 0.05, bottom: showVolume ? 0.36 : 0.30 },
+                });
                 priceLinesRef.current = [];
                 for (const line of priceLines) {
                     candleSeries.createPriceLine({
@@ -333,30 +423,55 @@ export function ScreenerLightweightChart({
                     volumeSeries.setData(volume);
                 }
 
-                const atrSeries = chart.addSeries(LineSeries, {
-                    color: chartTheme.atrColor,
-                    lineWidth: 2,
-                    priceScaleId: 'atr',
-                    lastValueVisible: true,
-                    priceLineVisible: false,
-                });
-                chart.priceScale('atr').applyOptions({
-                    visible: true,
-                    borderColor: 'rgba(245,158,11,0.25)',
-                    textColor: chartTheme.atrColor,
-                    scaleMargins: { top: 0.72, bottom: 0.12 },
-                });
-                atrSeries.setData(buildAtr14(candle));
+                if (lowerPaneMode !== 'none') {
+                    if (lowerPaneMode === 'pnl') {
+                        const pnlSeries = chart.addSeries(AreaSeries, {
+                            lineColor: '#6CCF84',
+                            topColor: 'rgba(108,207,132,0.35)',
+                            bottomColor: 'rgba(108,207,132,0.03)',
+                            lineWidth: 2,
+                            priceScaleId: LOWER_PRICE_SCALE_ID,
+                            lastValueVisible: true,
+                            priceLineVisible: false,
+                        });
+                        pnlSeries.setData(buildPositionPnl(candle));
+                        pnlSeries.priceScale().applyOptions({
+                            visible: true,
+                            borderColor: 'rgba(108,207,132,0.25)',
+                            textColor: '#6CCF84',
+                            scaleMargins: { top: 0.76, bottom: 0.06 },
+                        });
+                        lowerSeriesRef.current = pnlSeries;
+                    } else {
+                        const atrSeries = chart.addSeries(LineSeries, {
+                            color: chartTheme.atrColor,
+                            lineWidth: 2,
+                            priceScaleId: LOWER_PRICE_SCALE_ID,
+                            lastValueVisible: true,
+                            priceLineVisible: false,
+                        });
+                        atrSeries.setData(buildAtr14(candle));
+                        atrSeries.priceScale().applyOptions({
+                            visible: true,
+                            borderColor: 'rgba(245,158,11,0.25)',
+                            textColor: chartTheme.atrColor,
+                            scaleMargins: { top: 0.76, bottom: 0.06 },
+                        });
+                        lowerSeriesRef.current = atrSeries;
+                    }
+                } else {
+                    lowerSeriesRef.current = null;
+                }
 
                 chartRef.current = chart;
                 candleSeriesRef.current = candleSeries;
                 volumeSeriesRef.current = volumeSeries;
-                atrSeriesRef.current = atrSeries;
                 chart.timeScale().fitContent();
             } catch (e) {
                 const msg = e instanceof Error ? e.message : 'Failed to load chart data';
                 setError(msg);
                 onLoadError?.(msg);
+                onCandlesLoaded?.([]);
             } finally {
                 setLoading(false);
             }
@@ -370,11 +485,11 @@ export function ScreenerLightweightChart({
                 chartRef.current = null;
                 candleSeriesRef.current = null;
                 volumeSeriesRef.current = null;
-                atrSeriesRef.current = null;
+                lowerSeriesRef.current = null;
                 priceLinesRef.current = [];
             }
         };
-    }, [valid, exchange, pair, interval, chartTheme, priceLines, showVolume, onLoadError]);
+    }, [valid, exchange, pair, interval, chartTheme, priceLines, showVolume, lowerPaneMode, buildAtr14, buildPositionPnl, onLoadError, onCandlesLoaded]);
 
     useEffect(() => {
         if (!chartRef.current || !containerRef.current) return;
@@ -404,8 +519,9 @@ export function ScreenerLightweightChart({
 
     return (
         <div className="tm-market-chart-surface h-full w-full relative rounded-[14px] overflow-hidden border border-white/10" style={{ backgroundColor: chartTheme.layout.background.color }}>
-            {/* Divider between main price pane and ATR pane */}
-            <div className="pointer-events-none absolute left-0 right-0 top-[72%] z-[5] h-px bg-white/20" />
+            {lowerPaneMode !== 'none' && (
+                <div className="pointer-events-none absolute left-0 right-0 top-[72%] z-[5] h-px bg-white/20" />
+            )}
             {loading && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-900/80 text-zinc-500 text-xs font-bold uppercase tracking-wider">
                     Loading chart…

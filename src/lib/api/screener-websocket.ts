@@ -1,6 +1,7 @@
 import { normalizeSymbol } from '@/lib/utils/normalization';
 import { safeParseJson } from './websocket-types';
 import { WS_ENDPOINTS } from './websocket-endpoints';
+import { getHyperliquidPerpsMetaAndCtxs, getHyperliquidNotionalVolumeUsd } from './hyperliquid';
 
 /** Bybit does not support tickers.*; subscribe to each symbol individually */
 const BYBIT_TICKER_SYMBOLS = [
@@ -80,6 +81,7 @@ export class ScreenerWebSocketManager {
     /** Binance OI (contract count) from REST poll; OI USD = contracts * price in processBinanceTicker */
     private binanceOIContractsBySymbol: Map<string, number> = new Map();
     private binanceOIPollTimer: ReturnType<typeof setInterval> | null = null;
+    private hyperliquidStatsPollTimer: ReturnType<typeof setInterval> | null = null;
 
     /** Bybit: cache last known OI and other optional fields so delta-only updates don't clear them */
     private bybitLastTickerBySymbol: Map<string, { openInterest?: number; fundingRate?: number; volume24h?: number; change24h?: number }> = new Map();
@@ -405,11 +407,13 @@ export class ScreenerWebSocketManager {
                     subscription: { type: 'allMids' }
                 }));
 
-                // Subscribe to webData2 (market stats)
-                this.hyperliquidWs?.send(JSON.stringify({
-                    method: 'subscribe',
-                    subscription: { type: 'webData2', user: '0x0000000000000000000000000000000000000000' }
-                }));
+                // Market stats are polled from official info endpoint (metaAndAssetCtxs)
+                // to avoid dependency on internal websocket channels.
+                this.clearHyperliquidStatsPoll();
+                this.pollHyperliquidStats().catch(() => { /* noop */ });
+                this.hyperliquidStatsPollTimer = setInterval(() => {
+                    this.pollHyperliquidStats().catch(() => { /* noop */ });
+                }, 20000);
 
                 // Heartbeat
                 this.heartbeatTimers.set('hyperliquid', setInterval(() => {
@@ -429,11 +433,6 @@ export class ScreenerWebSocketManager {
                             const p = parseFloat(price as string);
                             if (!Number.isNaN(p)) this.trackPrice(symbol, 'hyperliquid', p);
                         });
-                    } else if (msg.channel === 'webData2' && msg.data && typeof msg.data === 'object') {
-                        this.processHyperliquidStats(msg.data as {
-                            meta?: { universe?: Array<{ name?: string } | null> };
-                            assetCtxs?: Array<{ markPx?: string; prevDayPx?: string; dayNfv?: string; openInterest?: string; funding?: string } | null>;
-                        });
                     }
                 } catch (e) {
                     console.error('[ScreenerWS] Hyperliquid message error:', e, event.data);
@@ -444,6 +443,7 @@ export class ScreenerWebSocketManager {
                 console.error('[ScreenerWS] Hyperliquid error:', error);
                 this.onStatus?.({ exchange: 'hyperliquid', connected: false, error: 'Connection error' });
                 if (!this.manualDisconnect) {
+                    this.clearHyperliquidStatsPoll();
                     try { this.hyperliquidWs?.close(); } catch { /* noop */ }
                     this.scheduleReconnect('hyperliquid', () => this.connectHyperliquid());
                 }
@@ -455,6 +455,7 @@ export class ScreenerWebSocketManager {
                 const hb = this.heartbeatTimers.get('hyperliquid');
                 if (hb) clearInterval(hb);
                 this.heartbeatTimers.delete('hyperliquid');
+                this.clearHyperliquidStatsPoll();
                 if (!this.manualDisconnect) this.scheduleReconnect('hyperliquid', () => this.connectHyperliquid());
             };
         } catch (error) {
@@ -462,9 +463,25 @@ export class ScreenerWebSocketManager {
         }
     }
 
+    private clearHyperliquidStatsPoll() {
+        if (this.hyperliquidStatsPollTimer) {
+            clearInterval(this.hyperliquidStatsPollTimer);
+            this.hyperliquidStatsPollTimer = null;
+        }
+    }
+
+    private async pollHyperliquidStats() {
+        const data = await getHyperliquidPerpsMetaAndCtxs();
+        if (!data) return;
+        this.processHyperliquidStats({
+            meta: data.meta,
+            assetCtxs: data.ctxs
+        });
+    }
+
     private processHyperliquidStats(data: {
         meta?: { universe?: Array<{ name?: string } | null> };
-        assetCtxs?: Array<{ markPx?: string; prevDayPx?: string; dayNfv?: string; openInterest?: string; funding?: string } | null>;
+        assetCtxs?: Array<{ markPx?: string; prevDayPx?: string; dayNtlVlm?: string; dayNfv?: string; openInterest?: string; funding?: string } | null>;
     }) {
         if (!data || typeof data !== 'object') return;
 
@@ -485,7 +502,7 @@ export class ScreenerWebSocketManager {
                 const price = parseFloat(ctx.markPx || '0');
                 const prevDayPx = parseFloat(ctx.prevDayPx || '0');
                 const change24h = prevDayPx > 0 ? ((price / prevDayPx) - 1) * 100 : 0;
-                const volume24h = parseFloat(ctx.dayNfv || '0');
+                const volume24h = getHyperliquidNotionalVolumeUsd(ctx);
                 const openInterest = parseFloat(ctx.openInterest || '0') * price;
                 const fundingRate = parseFloat(ctx.funding || '0');
 
@@ -778,6 +795,7 @@ export class ScreenerWebSocketManager {
             clearInterval(this.binanceOIPollTimer);
             this.binanceOIPollTimer = null;
         }
+        this.clearHyperliquidStatsPoll();
 
         [this.binanceWs, this.binanceMarkPriceWs, this.bybitWs, this.hyperliquidWs].forEach(ws => {
             if (ws && ws.readyState === WebSocket.OPEN) {

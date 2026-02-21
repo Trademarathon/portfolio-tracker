@@ -26,6 +26,7 @@ import { LicenseProvider, useLicense } from "@/contexts/LicenseContext";
 import { ActivationScreen } from "@/components/License/ActivationScreen";
 import { AppearanceSync } from "@/components/AppearanceSync";
 import { StorageFullBanner } from "@/components/StorageFullBanner";
+import { MarketsBackgroundRunner } from "@/components/Background/MarketsBackgroundRunner";
 import { Loader2 } from "lucide-react";
 import { SectionErrorBoundary } from "@/components/Dashboard/SectionErrorBoundary";
 
@@ -143,6 +144,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                                 <AuthGate>
                                     <MovementAlertsSettingsProvider>
                                         <AlertsProvider>
+                                            <MarketsBackgroundRunner />
                                             <ExchangeProvider>
                                                 <PortfolioProvider>
                                                     <RejectionGuard>

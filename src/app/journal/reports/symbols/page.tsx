@@ -2,338 +2,365 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 import { useJournal } from "@/contexts/JournalContext";
+import {
+  DAY_LABELS,
+  HOLD_BUCKETS,
+  buildEquityCurve,
+  buildGroupedStats,
+  buildSymbolStats,
+  getClosedTrades,
+  getTradePnl,
+  getTradeVolume,
+  winRateFromCounts,
+  type AggregatedStat,
+  type MetricMode,
+  valueForMode,
+} from "@/lib/journal/reports";
+import { cn } from "@/lib/utils";
 import { TokenIcon } from "@/components/ui/TokenIcon";
-import { Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  LongShortBar,
+  ModeToggle,
+  MultiCurveChart,
+  PerformanceBars,
+  formatDuration,
+  formatMoney,
+} from "@/components/Journal/Reports/charts";
+import { ReportsFiltersBar, ReportsSubnav } from "@/components/Journal/Reports/shared";
 
-type ViewMode = 'pnl' | 'count' | 'winRate';
-type SortField = 'symbol' | 'count' | 'winRate' | 'avgPnl' | 'totalPnl';
+type SortField = "symbol" | "count" | "winRate" | "avgPnl" | "totalPnl" | "hold";
 
-interface SymbolStats {
-    symbol: string;
-    count: number;
-    wins: number;
-    losses: number;
-    winRate: number;
-    longs: number;
-    shorts: number;
-    avgHoldTime: number;
-    avgPnl: number;
-    totalPnl: number;
+function statWinRate(stat: AggregatedStat): number {
+  return winRateFromCounts(stat.wins, stat.losses);
+}
+
+function formatExcursionPercent(value: number): string {
+  return value > 0 ? `${value.toFixed(1)}%` : "N/A";
+}
+
+function avgWin(stat: AggregatedStat): number {
+  const wins = stat.trades.filter((trade) => getTradePnl(trade) > 0);
+  if (!wins.length) return 0;
+  return wins.reduce((sum, trade) => sum + getTradePnl(trade), 0) / wins.length;
+}
+
+function avgLoss(stat: AggregatedStat): number {
+  const losses = stat.trades.filter((trade) => getTradePnl(trade) < 0);
+  if (!losses.length) return 0;
+  return losses.reduce((sum, trade) => sum + getTradePnl(trade), 0) / losses.length;
+}
+
+function hitRateForSide(stat: AggregatedStat, side: "long" | "short"): number {
+  const sideTrades = stat.trades.filter((trade) => {
+    const isLong = trade.side === "buy" || (trade.side as string) === "long";
+    return side === "long" ? isLong : !isLong;
+  });
+
+  if (!sideTrades.length) return 0;
+  const wins = sideTrades.filter((trade) => getTradePnl(trade) > 0).length;
+  const losses = sideTrades.filter((trade) => getTradePnl(trade) < 0).length;
+  return winRateFromCounts(wins, losses);
 }
 
 export default function SymbolsReportPage() {
-    const { filteredTrades, preferences, isLoading } = useJournal();
-    const [viewMode, setViewMode] = useState<ViewMode>('pnl');
-    const [sortField, setSortField] = useState<SortField>('totalPnl');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const { filteredTrades, preferences, isLoading } = useJournal();
 
-    // Calculate stats by symbol
-    const symbolStats = useMemo(() => {
-        const stats: Record<string, SymbolStats> = {};
+  const [mode, setMode] = useState<MetricMode>("pnl");
+  const [sortField, setSortField] = useState<SortField>("totalPnl");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
 
-        (filteredTrades || []).forEach(trade => {
-            const symbol = trade.symbol;
-            if (!stats[symbol]) {
-                stats[symbol] = {
-                    symbol,
-                    count: 0,
-                    wins: 0,
-                    losses: 0,
-                    winRate: 0,
-                    longs: 0,
-                    shorts: 0,
-                    avgHoldTime: 0,
-                    avgPnl: 0,
-                    totalPnl: 0,
-                };
-            }
+  const closedTrades = useMemo(() => getClosedTrades(filteredTrades), [filteredTrades]);
+  const symbolStats = useMemo(() => buildSymbolStats(closedTrades), [closedTrades]);
 
-            const pnl = trade.realizedPnl || 0;
-            const isLong = trade.side === 'buy' || (trade.side as string) === 'long';
+  const sortedStats = useMemo(() => {
+    const next = [...symbolStats].sort((a, b) => {
+      let left: number | string = 0;
+      let right: number | string = 0;
 
-            stats[symbol].count++;
-            stats[symbol].totalPnl += pnl;
-            if (pnl > 0) stats[symbol].wins++;
-            if (pnl < 0) stats[symbol].losses++;
-            if (isLong) stats[symbol].longs++;
-            else stats[symbol].shorts++;
-            stats[symbol].avgHoldTime += trade.holdTime || 0;
-        });
+      switch (sortField) {
+        case "symbol":
+          left = a.label.toLowerCase();
+          right = b.label.toLowerCase();
+          break;
+        case "count":
+          left = a.count;
+          right = b.count;
+          break;
+        case "winRate":
+          left = statWinRate(a);
+          right = statWinRate(b);
+          break;
+        case "avgPnl":
+          left = a.avgPnl;
+          right = b.avgPnl;
+          break;
+        case "totalPnl":
+          left = a.totalPnl;
+          right = b.totalPnl;
+          break;
+        case "hold":
+          left = a.avgHoldTimeMs;
+          right = b.avgHoldTimeMs;
+          break;
+      }
 
-        // Calculate averages
-        Object.values(stats).forEach(stat => {
-            if (stat.count > 0) {
-                stat.winRate = (stat.wins / stat.count) * 100;
-                stat.avgPnl = stat.totalPnl / stat.count;
-                stat.avgHoldTime = stat.avgHoldTime / stat.count;
-            }
-        });
+      if (typeof left === "string" && typeof right === "string") {
+        return sortDirection === "asc" ? left.localeCompare(right) : right.localeCompare(left);
+      }
 
-        return Object.values(stats);
-    }, [filteredTrades]);
+      return sortDirection === "asc" ? Number(left) - Number(right) : Number(right) - Number(left);
+    });
 
-    // Sort symbol stats
-    const sortedStats = useMemo(() => {
-        return [...symbolStats].sort((a, b) => {
-            let aVal: number | string = 0;
-            let bVal: number | string = 0;
+    return next;
+  }, [sortDirection, sortField, symbolStats]);
 
-            switch (sortField) {
-                case 'symbol':
-                    aVal = a.symbol;
-                    bVal = b.symbol;
-                    break;
-                case 'count':
-                    aVal = a.count;
-                    bVal = b.count;
-                    break;
-                case 'winRate':
-                    aVal = a.winRate;
-                    bVal = b.winRate;
-                    break;
-                case 'avgPnl':
-                    aVal = a.avgPnl;
-                    bVal = b.avgPnl;
-                    break;
-                case 'totalPnl':
-                    aVal = a.totalPnl;
-                    bVal = b.totalPnl;
-                    break;
-            }
+  const chartData = useMemo(
+    () => [...sortedStats].sort((a, b) => Math.abs(valueForMode(b, mode)) - Math.abs(valueForMode(a, mode))).slice(0, 32),
+    [mode, sortedStats]
+  );
 
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-            }
+  const topSymbol = sortedStats[0];
 
-            return sortDirection === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
-        });
-    }, [symbolStats, sortField, sortDirection]);
-
-    // Get max value for chart
-    const maxValue = useMemo(() => {
-        switch (viewMode) {
-            case 'pnl':
-                return Math.max(...symbolStats.map(s => Math.abs(s.totalPnl)), 1);
-            case 'count':
-                return Math.max(...symbolStats.map(s => s.count), 1);
-            case 'winRate':
-                return 100;
-        }
-    }, [symbolStats, viewMode]);
-
-    const handleSort = (field: SortField) => {
-        if (sortField === field) {
-            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortField(field);
-            setSortDirection('desc');
-        }
-    };
-
-    const formatValue = (value: number) => {
-        if (preferences.hideBalances) return '••••';
-        return `$${Math.abs(value).toFixed(2)}`;
-    };
-
-    const formatHoldTime = (ms: number) => {
-        const hours = ms / (1000 * 60 * 60);
-        if (hours < 24) return `${hours.toFixed(1)}h`;
-        return `${(hours / 24).toFixed(1)}d`;
-    };
-
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-[60vh]">
-                <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-        );
+  const handleSort = (field: SortField) => {
+    if (field === sortField) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
     }
 
+    setSortField(field);
+    setSortDirection("desc");
+  };
+
+  if (isLoading) {
     return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-6"
-        >
-            {/* Chart Section */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800/50"
-            >
-                <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Performance by Symbol</h3>
-                    <div className="flex rounded-lg overflow-hidden border border-zinc-700/50">
-                        {(['pnl', 'count', 'winRate'] as ViewMode[]).map(mode => (
-                            <button
-                                key={mode}
-                                onClick={() => setViewMode(mode)}
-                                className={cn(
-                                    "px-3 py-1.5 text-xs font-medium transition-colors",
-                                    viewMode === mode ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
-                                )}
-                            >
-                                {mode === 'pnl' ? 'PnL' : mode === 'count' ? 'Count' : 'Win Rate'}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Bar Chart */}
-                <div className="space-y-3">
-                    {sortedStats.slice(0, 10).map((stat, i) => {
-                        const value = viewMode === 'pnl' ? stat.totalPnl : viewMode === 'count' ? stat.count : stat.winRate;
-                        const barWidth = Math.abs(value) / maxValue * 100;
-                        const isPositive = viewMode === 'pnl' ? stat.totalPnl >= 0 : true;
-                        const baseSymbol = stat.symbol.replace('USDT', '').replace('USD', '').replace('/USDT', '');
-
-                        return (
-                            <motion.div
-                                key={stat.symbol}
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: i * 0.05 }}
-                                className="flex items-center gap-4"
-                            >
-                                <div className="w-36 flex items-center gap-2">
-                                    <TokenIcon symbol={baseSymbol} size={20} />
-                                    <span className="text-xs text-zinc-300 truncate">{stat.symbol}</span>
-                                </div>
-                                <div className="flex-1 h-6 bg-zinc-800/50 rounded overflow-hidden">
-                                    <motion.div
-                                        initial={{ width: 0 }}
-                                        animate={{ width: `${barWidth}%` }}
-                                        transition={{ delay: i * 0.05, duration: 0.5 }}
-                                        className={cn(
-                                            "h-full rounded",
-                                            isPositive ? "bg-emerald-500" : "bg-rose-500"
-                                        )}
-                                    />
-                                </div>
-                                <span className={cn(
-                                    "w-20 text-right text-xs font-bold",
-                                    isPositive ? "text-emerald-400" : "text-rose-400"
-                                )}>
-                                    {viewMode === 'pnl' ? formatValue(value) : viewMode === 'count' ? value : `${value.toFixed(1)}%`}
-                                </span>
-                            </motion.div>
-                        );
-                    })}
-                </div>
-            </motion.div>
-
-            {/* Insights Card */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="p-6 rounded-2xl bg-gradient-to-br from-blue-500/10 to-transparent border border-blue-500/20"
-            >
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                        <Sparkles className="w-5 h-5 text-blue-400" />
-                    </div>
-                    <h3 className="text-sm font-bold text-white">AI Insights</h3>
-                </div>
-                <div className="space-y-3 text-sm text-zinc-300">
-                    {sortedStats.length > 0 ? (
-                        <>
-                            <p>
-                                Your most traded symbol is <span className="text-blue-400 font-bold">{sortedStats.sort((a, b) => b.count - a.count)[0]?.symbol}</span> with <span className="text-blue-400 font-bold">{sortedStats.sort((a, b) => b.count - a.count)[0]?.count}</span> trades.
-                            </p>
-                            <p>
-                                Your most profitable symbol is <span className="text-emerald-400 font-bold">{sortedStats.sort((a, b) => b.totalPnl - a.totalPnl)[0]?.symbol}</span> with a total PnL of <span className="text-emerald-400 font-bold">{formatValue(sortedStats.sort((a, b) => b.totalPnl - a.totalPnl)[0]?.totalPnl || 0)}</span>.
-                            </p>
-                        </>
-                    ) : (
-                        <p>No trades found. Start trading to see symbol insights.</p>
-                    )}
-                </div>
-            </motion.div>
-
-            {/* Data Table */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="rounded-2xl bg-zinc-900/50 border border-zinc-800/50 overflow-hidden"
-            >
-                <table className="w-full">
-                    <thead>
-                        <tr className="border-b border-zinc-800/50">
-                            {[
-                                { id: 'symbol', label: 'Symbol' },
-                                { id: 'count', label: 'Trade Count' },
-                                { id: 'winRate', label: 'Win Rate %' },
-                                { id: 'avgPnl', label: 'Avg PnL' },
-                                { id: 'totalPnl', label: 'Total PnL' },
-                            ].map(col => (
-                                <th
-                                    key={col.id}
-                                    onClick={() => handleSort(col.id as SortField)}
-                                    className="px-4 py-3 text-left text-[10px] text-zinc-500 uppercase tracking-wider font-medium cursor-pointer hover:text-zinc-300"
-                                >
-                                    <div className="flex items-center gap-1">
-                                        {col.label}
-                                        {sortField === col.id && (
-                                            sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                                        )}
-                                    </div>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/30">
-                        {sortedStats.map(stat => {
-                            const baseSymbol = stat.symbol.replace('USDT', '').replace('USD', '').replace('/USDT', '');
-                            return (
-                                <tr key={stat.symbol} className="hover:bg-zinc-800/20 transition-colors">
-                                    <td className="px-4 py-3">
-                                        <div className="flex items-center gap-2">
-                                            <TokenIcon symbol={baseSymbol} size={24} />
-                                            <span className="text-sm text-white font-medium">{stat.symbol}</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3 text-sm text-zinc-300">{stat.count}</td>
-                                    <td className="px-4 py-3">
-                                        <span className={cn(
-                                            "text-sm font-bold",
-                                            stat.winRate >= 50 ? "text-emerald-400" : "text-rose-400"
-                                        )}>
-                                            {stat.winRate.toFixed(1)}%
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className={cn(
-                                            "text-sm font-bold",
-                                            stat.avgPnl >= 0 ? "text-emerald-400" : "text-rose-400"
-                                        )}>
-                                            {formatValue(stat.avgPnl)}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className={cn(
-                                            "text-sm font-bold",
-                                            stat.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400"
-                                        )}>
-                                            {formatValue(stat.totalPnl)}
-                                        </span>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                        {sortedStats.length === 0 && (
-                            <tr>
-                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-zinc-500">
-                                    No trades found
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </motion.div>
-        </motion.div>
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </div>
     );
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-12 gap-4">
+      <div className="col-span-12 xl:col-span-2">
+        <ReportsSubnav />
+      </div>
+
+      <div className="col-span-12 xl:col-span-10 space-y-4">
+        <h2 className="text-4xl font-black text-white">Symbols Report</h2>
+
+        <ReportsFiltersBar />
+
+        <div className="grid grid-cols-1 2xl:grid-cols-3 gap-3">
+          <div className="2xl:col-span-2 rounded-xl border border-zinc-800/70 bg-zinc-900/35 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">Performance report</h3>
+              <ModeToggle value={mode} onChange={setMode} />
+            </div>
+            <PerformanceBars stats={chartData} mode={mode} hideBalances={preferences.hideBalances} />
+          </div>
+
+          <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/35 p-4">
+            <div className="flex items-center gap-2 mb-3 text-zinc-200">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-lg font-bold">Insights</h3>
+            </div>
+
+            {topSymbol ? (
+              <div className="space-y-3 text-sm text-zinc-400">
+                <p>
+                  The <span className="text-zinc-100 font-semibold">"{topSymbol.label.toLowerCase()}"</span> symbol had the best
+                  impact on your PnL, with a total return of <span className="text-emerald-400 font-semibold">{formatMoney(topSymbol.totalPnl, preferences.hideBalances, true)}</span>.
+                </p>
+                <p className="text-xs text-zinc-500">
+                  Trades with this symbol had a win rate of {statWinRate(topSymbol).toFixed(1)}% and average hold time {formatDuration(topSymbol.avgHoldTimeMs)}.
+                </p>
+
+                <div className="pt-2 border-t border-zinc-800/70 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span>Average PnL</span>
+                    <span className={cn("font-semibold", topSymbol.avgPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                      {formatMoney(topSymbol.avgPnl, preferences.hideBalances, true)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Win rate</span>
+                    <span className="text-zinc-300 font-semibold">{statWinRate(topSymbol).toFixed(0)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Average size</span>
+                    <span className="text-zinc-300 font-semibold">
+                      {formatMoney(topSymbol.trades.reduce((sum, trade) => sum + getTradeVolume(trade), 0) / Math.max(1, topSymbol.count), preferences.hideBalances)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500">No symbol data found in current filters.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/35 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1080px]">
+              <thead>
+                <tr className="text-left border-b border-zinc-800/70 text-[11px] uppercase tracking-wider text-zinc-500">
+                  <th className="px-3 py-3 cursor-pointer" onClick={() => handleSort("symbol")}>Symbol</th>
+                  <th className="px-3 py-3 cursor-pointer" onClick={() => handleSort("count")}>Trade Count</th>
+                  <th className="px-3 py-3 cursor-pointer" onClick={() => handleSort("winRate")}>Win Rate (%)</th>
+                  <th className="px-3 py-3">Longs vs Shorts</th>
+                  <th className="px-3 py-3 cursor-pointer" onClick={() => handleSort("hold")}>Avg HoldTime</th>
+                  <th className="px-3 py-3 cursor-pointer" onClick={() => handleSort("avgPnl")}>Avg PnL</th>
+                  <th className="px-3 py-3 cursor-pointer" onClick={() => handleSort("totalPnl")}>Total PnL</th>
+                  <th className="px-3 py-3 w-10" />
+                </tr>
+              </thead>
+
+              <tbody>
+                {sortedStats.map((stat) => {
+                  const isExpanded = expandedSymbol === stat.id;
+                  const baseSymbol = stat.label.replace("USDT", "").replace("USD", "").replace("/USDT", "");
+
+                  const dayStats = buildGroupedStats(
+                    stat.trades,
+                    DAY_LABELS.map((day) => ({
+                      id: day.id,
+                      label: day.label,
+                      match: (trade) => new Date(trade.timestamp).getUTCDay() === day.day,
+                    }))
+                  );
+
+                  const timeStats = buildGroupedStats(
+                    stat.trades,
+                    [0, 4, 8, 12, 16, 20].map((hour) => ({
+                      id: `h_${hour}`,
+                      label: `${String(hour).padStart(2, "0")}-${String((hour + 4) % 24).padStart(2, "0")}`,
+                      match: (trade) => {
+                        const h = new Date(trade.timestamp).getUTCHours();
+                        return h >= hour && h < hour + 4;
+                      },
+                    }))
+                  );
+
+                  const holdStats = buildGroupedStats(
+                    stat.trades,
+                    HOLD_BUCKETS.slice(0, 8).map((bucket) => ({
+                      id: bucket.id,
+                      label: bucket.label,
+                      match: (trade) => {
+                        const hold = Number(trade.holdTime ?? 0);
+                        return hold >= bucket.min && hold < bucket.max;
+                      },
+                    }))
+                  );
+
+                  const symbolCurve = [
+                    {
+                      id: `${stat.id}_curve`,
+                      label: stat.label,
+                      color: "#57d4aa",
+                      points: buildEquityCurve(stat.trades),
+                    },
+                  ];
+
+                  const avgSize = stat.trades.reduce((sum, trade) => sum + getTradeVolume(trade), 0) / Math.max(1, stat.count);
+
+                  return (
+                    <>
+                      <tr key={stat.id} className="border-b border-zinc-900 hover:bg-zinc-900/50 transition-colors">
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2">
+                            <TokenIcon symbol={baseSymbol} size={22} />
+                            <span className="text-sm font-medium text-zinc-200">{stat.label}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-sm text-zinc-300">{stat.count}</td>
+                        <td className="px-3 py-3 text-sm text-zinc-200">{statWinRate(stat).toFixed(0)}%</td>
+                        <td className="px-3 py-3"><LongShortBar longs={stat.longs} shorts={stat.shorts} /></td>
+                        <td className="px-3 py-3">
+                          <span className="text-xs font-medium text-blue-200 bg-blue-500/20 px-2 py-1 rounded">{formatDuration(stat.avgHoldTimeMs)}</span>
+                        </td>
+                        <td className={cn("px-3 py-3 text-sm font-semibold", stat.avgPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                          {formatMoney(stat.avgPnl, preferences.hideBalances, true)}
+                        </td>
+                        <td className={cn("px-3 py-3 text-sm font-semibold", stat.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                          {formatMoney(stat.totalPnl, preferences.hideBalances, true)}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSymbol(isExpanded ? null : stat.id)}
+                            className="inline-flex items-center justify-center w-7 h-7 rounded bg-zinc-800 text-zinc-300"
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {isExpanded ? (
+                        <tr>
+                          <td colSpan={8} className="px-3 pb-3 bg-zinc-950/35">
+                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 pt-3">
+                              <div className="xl:col-span-2 rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-3">
+                                <h4 className="text-sm font-semibold text-zinc-200 mb-2">Historical PnL</h4>
+                                <MultiCurveChart curves={symbolCurve} />
+                              </div>
+
+                              <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-3">
+                                <h4 className="text-sm font-semibold text-zinc-200 mb-2">Stats</h4>
+                                <div className="space-y-1.5 text-xs">
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Average MAE</span><span className="text-zinc-200">{formatExcursionPercent(stat.avgMae)}</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Average MFE</span><span className="text-zinc-200">{formatExcursionPercent(stat.avgMfe)}</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Average Win</span><span className="text-emerald-400">{formatMoney(avgWin(stat), preferences.hideBalances, true)}</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Average Loss</span><span className="text-rose-400">{formatMoney(avgLoss(stat), preferences.hideBalances, true)}</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Hitrate for Longs</span><span className="text-zinc-200">{hitRateForSide(stat, "long").toFixed(0)}%</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Hitrate for Shorts</span><span className="text-zinc-200">{hitRateForSide(stat, "short").toFixed(0)}%</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Average Size</span><span className="text-zinc-200">{formatMoney(avgSize, preferences.hideBalances)}</span></div>
+                                  <div className="flex items-center justify-between"><span className="text-zinc-500">Total Funding Paid</span><span className="text-rose-400">{formatMoney(-stat.fundingPaid, preferences.hideBalances, true)}</span></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
+                              <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-3">
+                                <h4 className="text-sm font-semibold text-zinc-200 mb-2">Day of Week</h4>
+                                <PerformanceBars stats={dayStats} mode="pnl" hideBalances={preferences.hideBalances} />
+                              </div>
+                              <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-3">
+                                <h4 className="text-sm font-semibold text-zinc-200 mb-2">Time of Day</h4>
+                                <PerformanceBars stats={timeStats} mode="pnl" hideBalances={preferences.hideBalances} />
+                              </div>
+                              <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-3">
+                                <h4 className="text-sm font-semibold text-zinc-200 mb-2">Hold time vs PnL</h4>
+                                <PerformanceBars stats={holdStats} mode="pnl" hideBalances={preferences.hideBalances} />
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </>
+                  );
+                })}
+
+                {sortedStats.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-zinc-500">
+                      No symbols found.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-3 py-2 text-xs text-zinc-500 border-t border-zinc-800/70 text-right">
+            Showing {Math.min(sortedStats.length, sortedStats.length)} of {sortedStats.length}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
 }

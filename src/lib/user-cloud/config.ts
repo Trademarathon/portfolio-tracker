@@ -46,6 +46,8 @@ export const USER_CLOUD_SYNC_KEYS: ReadonlySet<string> = new Set([
   STORAGE_KEYS.movement_alerts_cache,
   STORAGE_KEYS.ai_feed_memory,
   STORAGE_KEYS.alerts_memory,
+  STORAGE_KEYS.activity_intel_settings,
+  STORAGE_KEYS.activity_memory_summary,
   // UI
   STORAGE_KEYS.ui_sidebar_hidden,
   STORAGE_KEYS.ui_sidebar_collapsed,

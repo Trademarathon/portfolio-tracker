@@ -29,7 +29,7 @@ flowchart LR
   end
   subgraph hl [Hyperliquid]
     HL_Mids[allMids]
-    HL_Web[webData2]
+    HL_Info[info: metaAndAssetCtxs]
   end
   subgraph from_somewhere [From elsewhere]
     API[GET /api/screener/markets]
@@ -43,7 +43,7 @@ flowchart LR
   B_OI --> Mgr
   BY_WS --> Mgr
   HL_Mids --> Mgr
-  HL_Web --> Mgr
+  HL_Info --> Mgr
   Mgr --> Hook
   API --> Hook
   Default --> Hook
@@ -54,7 +54,7 @@ flowchart LR
 |----------|--------------------|--------|------|----------------|--------|
 | **Binance** | WS `!ticker@arr` | WS `!markPrice@arr` | REST poll `BINANCE_OI_SYMBOLS` (60s) | From OI history once we have OI | [screener-websocket.ts](src/lib/api/screener-websocket.ts) |
 | **Bybit** | WS `tickers.{symbol}` (per-symbol list) | WS same stream | WS (cached for deltas) | WS `getMetrics` + `oiHistory` | Same |
-| **Hyperliquid** | WS `allMids` + `webData2` | WS `webData2` | WS `webData2` | WS `getMetrics` + `oiHistory` | Same |
+| **Hyperliquid** | WS `allMids` + poll `metaAndAssetCtxs` | poll `metaAndAssetCtxs` | poll `metaAndAssetCtxs` | WS `getMetrics` + `oiHistory` | Same |
 | **Static list** | — | — | — | — | [api-server/routes/screener-markets.ts](api-server/routes/screener-markets.ts) or `DEFAULT_MARKETS` in [useScreenerData.ts](src/hooks/useScreenerData.ts) |
 
 “From somewhere” = **API** (`/api/screener/markets`) for symbol list and exchange labels; if API fails, **DEFAULT_MARKETS** in the hook is used so Binance, Bybit, and Hyperliquid still have placeholder rows.

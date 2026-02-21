@@ -8,6 +8,11 @@
 
 import { ultraFetch, getLatencyTracker } from '@/lib/ultraFast';
 import { WS_ENDPOINTS } from '@/lib/api/websocket-endpoints';
+import {
+    getHyperliquidL2Book,
+    getHyperliquidPerpsMetaAndCtxs,
+    getHyperliquidNotionalVolumeUsd
+} from '@/lib/api/hyperliquid';
 
 // ========== TYPES ==========
 
@@ -325,34 +330,28 @@ async function fetchHyperliquidOrderBook(symbol: string, limit: number = 100): P
     const start = performance.now();
     try {
         const hlSymbol = symbol.replace('USDT', '').replace('/', '');
-        const response = await ultraFetch('https://api.hyperliquid.xyz/info', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'l2Book', coin: hlSymbol })
-        });
+        const data = await getHyperliquidL2Book(hlSymbol);
         tracker.add(Math.round(performance.now() - start));
-        if (!response.ok) return null;
-        const data = await response.json();
-        
+
         const levels = data.levels || [[], []];
-        
+
         const bids: OrderBookLevel[] = levels[0].slice(0, limit).map((b: { px: string; sz: string; n: number }) => ({
             price: parseFloat(b.px),
             size: parseFloat(b.sz),
             sizeUsd: parseFloat(b.px) * parseFloat(b.sz),
             orders: b.n
         }));
-        
+
         const asks: OrderBookLevel[] = levels[1].slice(0, limit).map((a: { px: string; sz: string; n: number }) => ({
             price: parseFloat(a.px),
             size: parseFloat(a.sz),
             sizeUsd: parseFloat(a.px) * parseFloat(a.sz),
             orders: a.n
         }));
-        
+
         const midPrice = (bids[0]?.price + asks[0]?.price) / 2 || 0;
         const spread = asks[0]?.price - bids[0]?.price || 0;
-        
+
         return {
             symbol,
             exchange: 'hyperliquid',
@@ -374,27 +373,22 @@ async function fetchHyperliquidFundingRate(symbol: string): Promise<FundingRate 
     const _start = performance.now();
     try {
         const hlSymbol = symbol.replace('USDT', '').replace('/', '');
-        const response = await ultraFetch('https://api.hyperliquid.xyz/info', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'metaAndAssetCtxs' })
-        });
-        
-        if (!response.ok) return null;
-        const data = await response.json();
-        
-        const [meta, assetCtxs] = data;
+        const data = await getHyperliquidPerpsMetaAndCtxs();
+        if (!data) return null;
+
+        const { meta, ctxs: assetCtxs } = data;
         const index = meta.universe.findIndex((u: { name: string }) => u.name === hlSymbol);
-        
+
         if (index === -1) return null;
-        
+
         const ctx = assetCtxs[index];
-        
+        const fundingRate = parseFloat(ctx?.funding || '0');
+
         return {
             symbol,
             exchange: 'hyperliquid',
-            rate: parseFloat(ctx.funding || '0'),
-            ratePercent: parseFloat(ctx.funding || '0') * 100,
+            rate: fundingRate,
+            ratePercent: fundingRate * 100,
             nextFundingTime: Date.now() + 3600000 // HL funds every hour
         };
     } catch (e) {
@@ -408,34 +402,31 @@ async function fetchHyperliquidMarketData(symbol: string): Promise<FuturesMarket
     const start = performance.now();
     try {
         const hlSymbol = symbol.replace('USDT', '').replace('/', '');
-        const response = await ultraFetch('https://api.hyperliquid.xyz/info', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'metaAndAssetCtxs' })
-        });
+        const data = await getHyperliquidPerpsMetaAndCtxs();
         tracker.add(Math.round(performance.now() - start));
-        if (!response.ok) return null;
-        const data = await response.json();
-        
-        const [meta, assetCtxs] = data;
+        if (!data) return null;
+
+        const { meta, ctxs: assetCtxs } = data;
         const index = meta.universe.findIndex((u: { name: string }) => u.name === hlSymbol);
-        
+
         if (index === -1) return null;
-        
+
         const ctx = assetCtxs[index];
         const markPrice = parseFloat(ctx.markPx || '0');
         const prevPrice = parseFloat(ctx.prevDayPx || '0');
-        
+        const volumeUsd24h = getHyperliquidNotionalVolumeUsd(ctx);
+        const openInterest = parseFloat(ctx.openInterest || '0');
+
         return {
             symbol,
             exchange: 'hyperliquid',
             price: markPrice,
             markPrice,
             indexPrice: parseFloat(ctx.oraclePx || '0'),
-            volume24h: parseFloat(ctx.dayNtlVlm || '0') / markPrice,
-            volumeUsd24h: parseFloat(ctx.dayNtlVlm || '0'),
-            openInterest: parseFloat(ctx.openInterest || '0'),
-            openInterestUsd: parseFloat(ctx.openInterest || '0') * markPrice,
+            volume24h: markPrice > 0 ? volumeUsd24h / markPrice : 0,
+            volumeUsd24h,
+            openInterest,
+            openInterestUsd: openInterest * markPrice,
             high24h: 0, // Not available
             low24h: 0,
             change24h: markPrice - prevPrice,
