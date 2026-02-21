@@ -70,7 +70,7 @@ The app uses a static export. For CEX connections, journal sync, wallet API, and
 2. In `.env`, set: `NEXT_PUBLIC_API_URL=http://127.0.0.1:35821`
 3. For journal (Prisma): set `DATABASE_URL="file:./dev.db"` (or your SQLite path) and run `npx prisma generate` (and migrations if needed).
 
-Then run `npm run dev` and open the app in the browser. The Tauri desktop build starts the API server automatically.
+Then run `npm run dev` and open the app in the browser.
 
 ---
 

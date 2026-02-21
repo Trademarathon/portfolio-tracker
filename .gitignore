@@ -64,3 +64,4 @@ terminal-dashboard/
 backend/
 build/
 out/
+.trash_release/
